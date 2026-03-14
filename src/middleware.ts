@@ -13,12 +13,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Middleware Error: Missing Supabase environment variables.");
+    // Even though variables are missing, we still want to guard protected routes
+    const { pathname } = request.nextUrl;
+    const protectedPaths = [
+      "/dashboard",
+      "/create",
+      "/library",
+      "/analytics",
+      "/voice",
+      "/settings",
+      "/onboarding",
+    ];
+    const isProtected = protectedPaths.some(
+      (p) => pathname === p || pathname.startsWith(p + "/")
+    );
+    if (isProtected) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -33,49 +58,52 @@ export async function middleware(request: NextRequest) {
           );
         },
       },
+    });
+
+    // Refresh session — required by Supabase SSR
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { pathname } = request.nextUrl;
+
+    // Protected routes — redirect to /login if no session
+    const protectedPaths = [
+      "/dashboard",
+      "/create",
+      "/library",
+      "/analytics",
+      "/voice",
+      "/settings",
+      "/onboarding",
+    ];
+    const isProtected = protectedPaths.some(
+      (p) => pathname === p || pathname.startsWith(p + "/")
+    );
+
+    if (isProtected && !user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
     }
-  );
 
-  // Refresh session — required by Supabase SSR
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    // Auth routes — redirect to /dashboard if already authenticated
+    const authPaths = ["/login", "/signup"];
+    const isAuthPage = authPaths.some(
+      (p) => pathname === p || pathname.startsWith(p + "/")
+    );
 
-  const { pathname } = request.nextUrl;
+    if (isAuthPage && user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      return NextResponse.redirect(url);
+    }
 
-  // Protected routes — redirect to /login if no session
-  const protectedPaths = [
-    "/dashboard",
-    "/create",
-    "/library",
-    "/analytics",
-    "/voice",
-    "/settings",
-    "/onboarding",
-  ];
-  const isProtected = protectedPaths.some(
-    (p) => pathname === p || pathname.startsWith(p + "/")
-  );
-
-  if (isProtected && !user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return supabaseResponse;
+  } catch (error) {
+    console.error("Middleware Exception:", error);
+    return NextResponse.next({ request });
   }
-
-  // Auth routes — redirect to /dashboard if already authenticated
-  const authPaths = ["/login", "/signup"];
-  const isAuthPage = authPaths.some(
-    (p) => pathname === p || pathname.startsWith(p + "/")
-  );
-
-  if (isAuthPage && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  return supabaseResponse;
 }
 
 export const config = {
