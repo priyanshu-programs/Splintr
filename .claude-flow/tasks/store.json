@@ -1,0 +1,81 @@
+{
+  "tasks": {
+    "task-1773525739197-pyryzq": {
+      "taskId": "task-1773525739197-pyryzq",
+      "type": "refactor",
+      "description": "P0: Switch AI generation engine from Claude to OpenRouter free. Modify lib/ai/claude.ts to use @openrouter/sdk with model 'openrouter/free'. Keep same interface (generateContent, batchGenerate). Update /api/generate route.",
+      "priority": "critical",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "splintr-wave1-1773525687008-yld7"
+      ],
+      "tags": [
+        "wave1",
+        "P0",
+        "ai-provider"
+      ],
+      "createdAt": "2026-03-14T22:02:19.197Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1773525742488-tg9x8m": {
+      "taskId": "task-1773525742488-tg9x8m",
+      "type": "feature",
+      "description": "P1: Wire analytics page to real Supabase data + Recharts. Replace mock data with dual-mode store. Add Recharts weekly chart. Query generations/content_items for real stats.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "splintr-wave1-1773525687008-nbnc"
+      ],
+      "tags": [
+        "wave1",
+        "P1",
+        "analytics"
+      ],
+      "createdAt": "2026-03-14T22:02:22.488Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1773525747610-1bgnga": {
+      "taskId": "task-1773525747610-1bgnga",
+      "type": "feature",
+      "description": "P2: Wire voice profiles page to Supabase CRUD. Create/edit/delete voice profiles. Dual-mode (localStorage mock + Supabase). Tone sliders (formality, humor) persist to DB.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "splintr-wave1-1773525687008-ly9n"
+      ],
+      "tags": [
+        "wave1",
+        "P2",
+        "voice"
+      ],
+      "createdAt": "2026-03-14T22:02:27.610Z",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "task-1773525749809-165ms8": {
+      "taskId": "task-1773525749809-165ms8",
+      "type": "feature",
+      "description": "P7: Complete onboarding wizard → save all data to Supabase. Workspace creation, platform selections, voice profile with slider values. Dual-mode support.",
+      "priority": "high",
+      "status": "pending",
+      "progress": 0,
+      "assignedTo": [
+        "splintr-wave1-1773525687008-uc4z"
+      ],
+      "tags": [
+        "wave1",
+        "P7",
+        "onboarding"
+      ],
+      "createdAt": "2026-03-14T22:02:29.809Z",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
+  "version": "3.0.0"
+}

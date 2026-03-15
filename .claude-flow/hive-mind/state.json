@@ -1,0 +1,126 @@
+{
+  "initialized": true,
+  "topology": "hierarchical",
+  "workers": [
+    "splintr-wave1-1773525687008-yld7",
+    "splintr-wave1-1773525687008-nbnc",
+    "splintr-wave1-1773525687008-ly9n",
+    "splintr-wave1-1773525687008-uc4z"
+  ],
+  "consensus": {
+    "pending": [],
+    "history": []
+  },
+  "sharedMemory": {
+    "battle-plan": {
+      "phases": [
+        {
+          "id": "P0",
+          "name": "AI Provider Switch",
+          "desc": "Switch main generation engine from Claude to OpenRouter free",
+          "priority": "critical"
+        },
+        {
+          "id": "P1",
+          "name": "Analytics Real Data",
+          "desc": "Wire analytics page to Supabase + Recharts",
+          "priority": "high"
+        },
+        {
+          "id": "P2",
+          "name": "Voice Profiles CRUD",
+          "desc": "Wire voice profiles to Supabase with create/edit/delete",
+          "priority": "high"
+        },
+        {
+          "id": "P3",
+          "name": "Settings Real Data",
+          "desc": "Wire settings tabs to Supabase profile/workspace data",
+          "priority": "high"
+        },
+        {
+          "id": "P4",
+          "name": "Scheduling Real Data",
+          "desc": "Wire scheduling calendar to Supabase generations",
+          "priority": "high"
+        },
+        {
+          "id": "P5",
+          "name": "Setup Connections",
+          "desc": "Platform OAuth flows for LinkedIn, X, Instagram etc",
+          "priority": "high"
+        },
+        {
+          "id": "P6",
+          "name": "API Access Keys",
+          "desc": "Real API key generation and webhook management",
+          "priority": "normal"
+        },
+        {
+          "id": "P7",
+          "name": "Onboarding Save",
+          "desc": "Save onboarding wizard data to Supabase",
+          "priority": "high"
+        },
+        {
+          "id": "P8",
+          "name": "Stripe Checkout",
+          "desc": "Subscription flow with Stripe",
+          "priority": "normal"
+        },
+        {
+          "id": "P9",
+          "name": "File Upload",
+          "desc": "Upload to Supabase Storage",
+          "priority": "normal"
+        },
+        {
+          "id": "P10",
+          "name": "Transcribe API",
+          "desc": "Audio/video transcription endpoint",
+          "priority": "normal"
+        },
+        {
+          "id": "P11",
+          "name": "Publish API",
+          "desc": "Actual platform posting via OAuth",
+          "priority": "normal"
+        },
+        {
+          "id": "P12",
+          "name": "Framer Motion",
+          "desc": "Page transitions and animations",
+          "priority": "low"
+        }
+      ],
+      "conventions": {
+        "ai_provider": "openrouter_free",
+        "data_mode": "dual (mock + supabase)",
+        "pattern": "content-store.ts dual-mode pattern"
+      }
+    },
+    "broadcasts": [
+      {
+        "messageId": "msg-1773525735021-f7q6gj",
+        "message": "MISSION: Build end-to-end functionality for Splintr app. All AI calls use OpenRouter free tier. All data wiring uses dual-mode pattern (mock localStorage + real Supabase). Follow existing content-store.ts pattern. Wave 1 starting: P0 (AI switch), P1 (Analytics), P2 (Voice CRUD), P7 (Onboarding save).",
+        "priority": "critical",
+        "fromId": "splintr-queen",
+        "timestamp": "2026-03-14T22:02:15.021Z"
+      },
+      {
+        "messageId": "msg-1773525804909-8mjpkz",
+        "message": "PLAN UPDATE: P0 and P7 already complete in codebase. Wave 1 adjusted to P1 (Analytics), P2 (Voice CRUD), P3 (Settings), P4 (Scheduling). All agents use dual-mode pattern from content-store.ts.",
+        "priority": "high",
+        "fromId": "splintr-queen",
+        "timestamp": "2026-03-14T22:03:24.909Z"
+      }
+    ]
+  },
+  "createdAt": "2026-03-14T22:01:01.093Z",
+  "updatedAt": "2026-03-14T22:03:24.909Z",
+  "queen": {
+    "agentId": "splintr-queen",
+    "electedAt": "2026-03-14T22:01:01.093Z",
+    "term": 1
+  }
+}

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import gsap from "gsap";
+import { useSearchParams } from "next/navigation";
 import {
   Linkedin,
   Twitter,
@@ -11,27 +13,33 @@ import {
   ExternalLink,
   Link2,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
+import {
+  getConnections,
+  connectPlatform,
+  disconnectPlatform,
+  consumeOAuthResult,
+  type PlatformConnection,
+} from "@/lib/connections-store";
 
 /* ── platform registry ── */
 
-type Platform = {
+type PlatformMeta = {
   id: string;
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  connected: boolean;
-  username: string | null;
 };
 
-const initialPlatforms: Platform[] = [
-  { id: "linkedin",  name: "LinkedIn",          icon: Linkedin,  connected: true,  username: "@johndoe" },
-  { id: "x",         name: "X / Twitter",       icon: Twitter,   connected: true,  username: "@johndoe_x" },
-  { id: "instagram", name: "Instagram",         icon: Instagram, connected: false, username: null },
-  { id: "youtube",   name: "YouTube",           icon: Youtube,   connected: false, username: null },
-  { id: "tiktok",    name: "TikTok",            icon: () => <TikTokIcon />, connected: false, username: null },
-  { id: "threads",   name: "Threads",           icon: () => <ThreadsIcon />, connected: false, username: null },
-  { id: "meta",      name: "Meta",              icon: () => <MetaIcon />, connected: false, username: null },
-  { id: "blog",      name: "Blog (WordPress)",  icon: BookOpen,  connected: false, username: null },
+const PLATFORM_META: PlatformMeta[] = [
+  { id: "linkedin", name: "LinkedIn", icon: Linkedin },
+  { id: "x", name: "X / Twitter", icon: Twitter },
+  { id: "instagram", name: "Instagram", icon: Instagram },
+  { id: "youtube", name: "YouTube", icon: Youtube },
+  { id: "tiktok", name: "TikTok", icon: () => <TikTokIcon /> },
+  { id: "threads", name: "Threads", icon: () => <ThreadsIcon /> },
+  { id: "bluesky", name: "Bluesky", icon: () => <BlueskyIcon /> },
+  { id: "blog", name: "Blog (WordPress)", icon: BookOpen },
 ];
 
 /* ── tiny SVG icons for platforms without lucide icons ── */
@@ -52,29 +60,37 @@ function ThreadsIcon() {
   );
 }
 
-function MetaIcon() {
+function BlueskyIcon() {
   return (
     <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
-      <path d="M6.915 4.03c-1.968 0-3.202 1.14-4.157 2.81C1.532 8.803.715 11.49.715 13.71c0 2.04.918 3.54 2.93 3.54 1.563 0 2.863-1.06 4.168-3.04.876-1.33 1.66-2.95 2.31-4.53l.69-1.69c.63-1.53 1.38-3.19 2.38-4.39C14.493 2.1 16.023 1.3 17.753 1.3c2.16 0 3.79 1.07 4.85 2.83.93 1.54 1.4 3.5 1.4 5.73 0 2.4-.56 4.55-1.68 6.26-1.19 1.81-2.95 2.88-5.18 2.88-1.19 0-2.24-.37-3.07-1.05-.78-.63-1.36-1.52-1.72-2.57l-.49 1.2c-.42 1.02-.96 1.98-1.63 2.72-.92 1.02-2.07 1.7-3.49 1.7-2.01 0-3.57-.84-4.6-2.31C1.1 17.1.5 15.22.5 13.04c0-2.72.83-5.72 2.17-8.08C4.22 2.2 6.32.5 8.92.5c1.54 0 2.8.56 3.72 1.46.84.82 1.44 1.91 1.8 3.14l-.96 2.36c-.31-1.2-.81-2.18-1.5-2.86-.72-.71-1.62-1.07-2.7-1.07-.52 0-1.01.1-1.43.31l.06.14zm.12 1.66c-.34.5-.68 1.12-1.01 1.85l-.4.92c-.96 2.24-1.75 4.2-2.73 5.87-1.1 1.87-2.12 2.68-3.27 2.68-.86 0-1.46-.53-1.46-1.73 0-1.78.68-4.13 1.6-5.88.78-1.48 1.68-2.37 2.7-2.37.45 0 .83.16 1.13.45.27.26.47.6.6 1.01l.55-1.37c.2-.48.42-.92.66-1.3.57-.92 1.24-1.46 2.03-1.46.33 0 .6.1.78.29.14.15.22.35.22.6 0 .36-.17.79-.4 1.26l-.07.17z" />
+      <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.785 2.627 3.6 3.476 6.158 3.228-4.41.68-5.784 2.852-3.249 5.024C6.886 21.27 11.35 21.418 12 15.9c.65 5.518 5.114 5.37 8.467 2.599 2.535-2.172 1.161-4.344-3.25-5.024 2.559.248 5.374-.601 6.159-3.228.246-.828.624-5.79.624-6.479 0-.688-.139-1.86-.902-2.203-.66-.3-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
     </svg>
   );
 }
 
-/* ── connect modal ── */
+/* ── connect info modal ── */
 
-function ConnectModal({ platform, onClose }: { platform: Platform; onClose: () => void }) {
+function ConnectInfoModal({
+  platformName,
+  platformId,
+  message,
+  onClose,
+}: {
+  platformName: string;
+  platformId: string;
+  message: string;
+  onClose: () => void;
+}) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md bg-background dark:bg-[#121214] border border-foreground/5 dark:border-white/10 rounded-2xl p-8 shadow-2xl">
         <div className="flex items-center gap-3 mb-6">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center bg-[var(--sp-fg)] text-background"
-          >
-            <platform.icon className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-[var(--sp-fg)] text-background">
+            <AlertCircle className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="font-semibold text-lg text-[var(--sp-fg)]">Connect {platform.name}</h3>
+            <h3 className="font-semibold text-lg text-[var(--sp-fg)]">Connect {platformName}</h3>
             <p className="text-xs text-[var(--sp-fg-light)]">OAuth integration</p>
           </div>
         </div>
@@ -83,10 +99,16 @@ function ConnectModal({ platform, onClose }: { platform: Platform; onClose: () =
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-[var(--sp-fg)] mb-1">Coming Soon</p>
+              <p className="text-sm font-medium text-[var(--sp-fg)] mb-1">API Credentials Required</p>
               <p className="text-xs text-[var(--sp-fg-light)] leading-relaxed">
-                Direct OAuth connection to {platform.name} is under development. Once enabled, you&apos;ll be able to
-                authorize Splintr to publish content directly to your {platform.name} account.
+                {message}
+              </p>
+              <p className="text-xs text-[var(--sp-fg-light)] leading-relaxed mt-2">
+                Add <code className="bg-foreground/5 dark:bg-white/10 px-1 py-0.5 rounded text-[10px]">
+                  {platformId.toUpperCase()}_CLIENT_ID
+                </code> and <code className="bg-foreground/5 dark:bg-white/10 px-1 py-0.5 rounded text-[10px]">
+                  {platformId.toUpperCase()}_CLIENT_SECRET
+                </code> to your <code className="bg-foreground/5 dark:bg-white/10 px-1 py-0.5 rounded text-[10px]">.env.local</code> file.
               </p>
             </div>
           </div>
@@ -105,26 +127,226 @@ function ConnectModal({ platform, onClose }: { platform: Platform; onClose: () =
   );
 }
 
+/* ── toast ── */
+
+function Toast({
+  message,
+  type,
+  onDismiss,
+}: {
+  message: string;
+  type: "success" | "error";
+  onDismiss: () => void;
+}) {
+  const toastRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let ctx = gsap.context(() => {
+      gsap.from(toastRef.current, {
+        y: 25,
+        opacity: 0,
+        scale: 0.9,
+        duration: 0.4,
+        ease: "power3.out",
+      });
+    });
+
+    const timer = setTimeout(() => {
+      gsap.to(toastRef.current, {
+        y: 15,
+        opacity: 0,
+        scale: 0.9,
+        duration: 0.3,
+        ease: "power2.in",
+        onComplete: onDismiss,
+      });
+    }, 3500);
+
+    return () => {
+      clearTimeout(timer);
+      ctx.revert();
+    };
+  }, [onDismiss]);
+
+  return (
+    <div
+      ref={toastRef}
+      className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-xl text-sm font-medium ${
+        type === "success"
+          ? "bg-[#111111]/90 border-white/10 text-white"
+          : "bg-[#111111]/90 border-red-500/20 text-red-400"
+      }`}
+    >
+      <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 ${
+        type === "success" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-500"
+      }`}>
+        {type === "success" ? (
+          <Check className="w-3.5 h-3.5" strokeWidth={3} />
+        ) : (
+          <AlertCircle className="w-3.5 h-3.5" strokeWidth={3} />
+        )}
+      </div>
+      <p className="tracking-tight">{message}</p>
+      <div className="w-px h-4 bg-white/15 mx-1" />
+      <button
+        onClick={() => {
+          gsap.to(toastRef.current, {
+            y: 15,
+            opacity: 0,
+            scale: 0.9,
+            duration: 0.3,
+            ease: "power2.in",
+            onComplete: onDismiss,
+          });
+        }}
+        className="opacity-50 hover:opacity-100 transition-opacity shrink-0"
+      >
+        <span className="sr-only">Close</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4">
+          <path d="M18 6L6 18M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+/* ── skeleton ── */
+
+function PlatformSkeleton() {
+  return (
+    <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-5 flex items-center gap-4 animate-pulse">
+      <div className="w-11 h-11 rounded-xl bg-foreground/5 dark:bg-white/5 shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 w-24 rounded bg-foreground/5 dark:bg-white/5" />
+        <div className="h-3 w-16 rounded bg-foreground/5 dark:bg-white/5" />
+      </div>
+      <div className="h-8 w-20 rounded-lg bg-foreground/5 dark:bg-white/5" />
+    </div>
+  );
+}
+
 /* ── page ── */
 
 export default function SetupPage() {
-  const [platforms, setPlatforms] = useState(initialPlatforms);
-  const [connectingPlatform, setConnectingPlatform] = useState<Platform | null>(null);
+  const searchParams = useSearchParams();
 
-  const connectedCount = platforms.filter((p) => p.connected).length;
+  const [connections, setConnections] = useState<PlatformConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [modalInfo, setModalInfo] = useState<{ platformName: string; platformId: string; message: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
-  function handleDisconnect(id: string) {
-    setPlatforms((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, connected: false, username: null } : p))
-    );
+  // Load connections on mount
+  const loadConnections = useCallback(async () => {
+    try {
+      const data = await getConnections();
+      setConnections(data);
+    } catch (err) {
+      console.error("Failed to load connections:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConnections();
+  }, [loadConnections]);
+
+  // Handle URL params (from OAuth callback)
+  useEffect(() => {
+    const connected = searchParams.get("connected");
+    const error = searchParams.get("error");
+
+    if (connected) {
+      // Consume OAuth result cookie (mock mode: persists token data to localStorage)
+      consumeOAuthResult();
+      loadConnections();
+      setToast({ message: `Successfully connected ${connected}!`, type: "success" });
+      // Clean URL
+      window.history.replaceState({}, "", "/setup");
+    }
+    if (error) {
+      const msg = error === "missing_params"
+        ? "OAuth callback missing required parameters."
+        : `Connection failed: ${decodeURIComponent(error)}`;
+      setToast({ message: msg, type: "error" });
+      window.history.replaceState({}, "", "/setup");
+    }
+  }, [searchParams]);
+
+  const connectedCount = connections.filter((c) => c.isActive).length;
+
+  // Handle connect button click
+  async function handleConnect(platformId: string) {
+    setActionLoading(platformId);
+    try {
+      const res = await fetch(`/api/connect/${platformId}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.configured) {
+        // OAuth not configured — show info modal
+        const meta = PLATFORM_META.find((p) => p.id === platformId);
+        setModalInfo({
+          platformName: meta?.name || platformId,
+          platformId,
+          message: data.message || data.error || `OAuth for ${platformId} is not configured yet.`,
+        });
+
+        // In mock mode, still connect the platform locally for demo purposes
+        await connectPlatform(platformId, `@${platformId}_user`);
+        await loadConnections();
+        return;
+      }
+
+      // If configured, redirect to OAuth URL
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error("Connect failed:", err);
+      setToast({ message: "Failed to initiate connection. Please try again.", type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  // Handle disconnect button click
+  async function handleDisconnect(platformId: string) {
+    setActionLoading(platformId);
+    try {
+      await disconnectPlatform(platformId);
+      await loadConnections();
+      const meta = PLATFORM_META.find((p) => p.id === platformId);
+      setToast({ message: `${meta?.name || platformId} disconnected.`, type: "error" });
+    } catch (err) {
+      console.error("Disconnect failed:", err);
+      setToast({ message: "Failed to disconnect. Please try again.", type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  // Merge connection data with platform meta
+  function getConnectionForPlatform(platformId: string): PlatformConnection | undefined {
+    return connections.find((c) => c.platform === platformId);
   }
 
   return (
     <>
-      {connectingPlatform && (
-        <ConnectModal
-          platform={connectingPlatform}
-          onClose={() => setConnectingPlatform(null)}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+
+      {modalInfo && (
+        <ConnectInfoModal
+          platformName={modalInfo.platformName}
+          platformId={modalInfo.platformId}
+          message={modalInfo.message}
+          onClose={() => setModalInfo(null)}
         />
       )}
 
@@ -142,60 +364,78 @@ export default function SetupPage() {
           <div className="flex items-center gap-2">
             <Link2 className="w-4 h-4 text-[var(--sp-fg-light)]" />
             <span className="font-mono text-xs text-[var(--sp-fg-light)]">
-              <span className="font-bold text-[var(--sp-fg)]">{connectedCount}</span> / {platforms.length} connected
+              <span className="font-bold text-[var(--sp-fg)]">{loading ? "-" : connectedCount}</span> / {PLATFORM_META.length} connected
             </span>
           </div>
         </div>
 
         {/* Platforms grid */}
         <div className="grid gap-4 md:grid-cols-2">
-          {platforms.map((platform) => (
-            <div
-              key={platform.id}
-              className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-5 flex items-center gap-4 transition-all hover:border-foreground/10 dark:hover:border-white/10"
-            >
-              {/* Icon */}
-              <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border border-foreground/10 dark:border-white/10 ${
-                  platform.connected 
-                    ? "bg-[var(--sp-fg)] text-background" 
-                    : "bg-[var(--sp-bg)] dark:bg-white/5 text-[var(--sp-fg-light)]"
-                }`}
-              >
-                <platform.icon className="w-5 h-5" />
-              </div>
+          {loading
+            ? Array.from({ length: 8 }).map((_, i) => <PlatformSkeleton key={i} />)
+            : PLATFORM_META.map((meta) => {
+              const conn = getConnectionForPlatform(meta.id);
+              const isConnected = conn?.isActive ?? false;
+              const isLoading = actionLoading === meta.id;
+              const Icon = meta.icon;
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-[var(--sp-fg)]">{platform.name}</div>
-                {platform.connected && platform.username && (
-                  <div className="text-xs text-[var(--sp-fg-light)]">{platform.username}</div>
-                )}
-              </div>
-
-              {/* Action */}
-              {platform.connected ? (
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono font-bold text-[var(--sp-green)] flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" /> Connected
-                  </span>
-                  <button
-                    onClick={() => handleDisconnect(platform.id)}
-                    className="h-8 px-3 border border-red-200 dark:border-red-900/40 text-red-500 rounded-lg text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConnectingPlatform(platform)}
-                  className="h-8 px-4 rounded-lg text-xs font-medium text-background bg-[var(--sp-fg)] transition-colors hover:opacity-90"
+              return (
+                <div
+                  key={meta.id}
+                  className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-5 flex items-center gap-4 transition-all hover:border-foreground/10 dark:hover:border-white/10"
                 >
-                  Connect
-                </button>
-              )}
-            </div>
-          ))}
+                  {/* Icon */}
+                  <div
+                    className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border border-foreground/10 dark:border-white/10 ${isConnected
+                        ? "bg-[var(--sp-fg)] text-background"
+                        : "bg-[var(--sp-bg)] dark:bg-white/5 text-[var(--sp-fg-light)]"
+                      }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-[var(--sp-fg)]">{meta.name}</div>
+                    {isConnected && conn?.platformUsername && (
+                      <div className="text-xs text-[var(--sp-fg-light)]">{conn.platformUsername}</div>
+                    )}
+                  </div>
+
+                  {/* Action */}
+                  {isConnected ? (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-mono font-bold text-[var(--sp-green)] flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> Connected
+                      </span>
+                      <button
+                        onClick={() => handleDisconnect(meta.id)}
+                        disabled={isLoading}
+                        className="h-8 px-3 border border-red-200 dark:border-red-900/40 text-red-500 rounded-lg text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors disabled:opacity-50"
+                      >
+                        {isLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          "Disconnect"
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleConnect(meta.id)}
+                      disabled={isLoading}
+                      className="h-8 px-4 rounded-lg text-xs font-medium text-background bg-[var(--sp-fg)] transition-colors hover:opacity-90 disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-background" />
+                      ) : (
+                        "Connect"
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
         </div>
 
         {/* Help section */}

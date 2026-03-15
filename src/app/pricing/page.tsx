@@ -1,12 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
-import { Check, ArrowLeft } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Check, ArrowLeft, Loader2 } from "lucide-react";
+import { createCheckoutSession } from "@/lib/stripe-store";
 
-const plans = [
+/* ── Plan definitions ── */
+
+interface Plan {
+  tier: string;
+  tierKey: string;
+  monthlyPrice: number;
+  yearlyPrice: number;
+  description: string;
+  features: string[];
+  cta: string;
+  popular: boolean;
+  /** Env var name for the Stripe price ID (monthly) */
+  monthlyPriceEnv: string;
+  /** Env var name for the Stripe price ID (yearly) */
+  yearlyPriceEnv: string;
+}
+
+const plans: Plan[] = [
   {
     tier: "Starter",
+    tierKey: "starter",
     monthlyPrice: 19,
     yearlyPrice: 190,
     description: "For individual creators building their initial presence.",
@@ -21,9 +41,12 @@ const plans = [
     ],
     cta: "Start Free",
     popular: false,
+    monthlyPriceEnv: "STRIPE_STARTER_MONTHLY_PRICE_ID",
+    yearlyPriceEnv: "STRIPE_STARTER_YEARLY_PRICE_ID",
   },
   {
     tier: "Pro",
+    tierKey: "pro",
     monthlyPrice: 49,
     yearlyPrice: 490,
     description: "For active creators running multi-channel distribution.",
@@ -40,9 +63,12 @@ const plans = [
     ],
     cta: "Start 7-Day Trial",
     popular: true,
+    monthlyPriceEnv: "STRIPE_PRO_MONTHLY_PRICE_ID",
+    yearlyPriceEnv: "STRIPE_PRO_YEARLY_PRICE_ID",
   },
   {
     tier: "Business",
+    tierKey: "business",
     monthlyPrice: 99,
     yearlyPrice: 990,
     description: "For teams, agencies, and high-volume media operations.",
@@ -59,27 +85,129 @@ const plans = [
     ],
     cta: "Contact Sales",
     popular: false,
+    monthlyPriceEnv: "STRIPE_BUSINESS_MONTHLY_PRICE_ID",
+    yearlyPriceEnv: "STRIPE_BUSINESS_YEARLY_PRICE_ID",
   },
 ];
 
-export default function PricingPage() {
+/* ── Price ID mapping (client-side env vars for Stripe price IDs) ── */
+
+const PRICE_IDS: Record<string, { monthly: string; yearly: string }> = {
+  starter: {
+    monthly: process.env.NEXT_PUBLIC_STRIPE_STARTER_MONTHLY || "price_starter_monthly",
+    yearly: process.env.NEXT_PUBLIC_STRIPE_STARTER_YEARLY || "price_starter_yearly",
+  },
+  pro: {
+    monthly: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY || "price_pro_monthly",
+    yearly: process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY || "price_pro_yearly",
+  },
+  business: {
+    monthly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_MONTHLY || "price_business_monthly",
+    yearly: process.env.NEXT_PUBLIC_STRIPE_BUSINESS_YEARLY || "price_business_yearly",
+  },
+};
+
+/* ── Success toast component ── */
+
+function UpgradeSuccessToast({ onDismiss }: { onDismiss: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 5000);
+    return () => clearTimeout(t);
+  }, [onDismiss]);
+
+  return (
+    <div className="fixed top-6 right-6 z-50 bg-[#27C93F] text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-in slide-in-from-top-2">
+      <Check className="w-4 h-4" />
+      <span className="text-sm font-medium">
+        Plan upgraded successfully!
+      </span>
+      <button
+        onClick={onDismiss}
+        className="ml-2 text-white/80 hover:text-white text-lg leading-none"
+      >
+        x
+      </button>
+    </div>
+  );
+}
+
+/* ── Inner page (needs useSearchParams, must be wrapped in Suspense) ── */
+
+function PricingContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [annual, setAnnual] = useState(true);
+  const [loadingTier, setLoadingTier] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Check for ?upgraded=true on mount
+  useEffect(() => {
+    if (searchParams.get("upgraded") === "true") {
+      setShowSuccess(true);
+      // Clean up the URL
+      router.replace("/pricing", { scroll: false });
+    }
+  }, [searchParams, router]);
+
+  const handleCheckout = useCallback(
+    async (plan: Plan) => {
+      // Business tier goes to contact/sales
+      if (plan.tierKey === "business") {
+        // For now, redirect to signup — replace with a contact form later
+        router.push("/signup");
+        return;
+      }
+
+      setLoadingTier(plan.tierKey);
+      setError(null);
+
+      try {
+        const priceId = annual
+          ? PRICE_IDS[plan.tierKey].yearly
+          : PRICE_IDS[plan.tierKey].monthly;
+
+        const { url } = await createCheckoutSession(priceId);
+        // Redirect to Stripe Checkout (or mock dashboard URL)
+        window.location.href = url;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Something went wrong";
+        setError(message);
+        setLoadingTier(null);
+      }
+    },
+    [annual, router]
+  );
 
   return (
     <div className="min-h-screen bg-[#F5F6F8]">
+      {showSuccess && (
+        <UpgradeSuccessToast onDismiss={() => setShowSuccess(false)} />
+      )}
+
       {/* Nav */}
       <nav className="h-16 bg-background border-b border-foreground/5 flex items-center px-6">
         <Link href="/" className="flex items-center gap-3">
           <div className="w-9 h-9 border border-[#0A0A0C] flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 stroke-[var(--sp-fg)] fill-none" strokeWidth={1.5}>
+            <svg
+              viewBox="0 0 24 24"
+              className="w-4 h-4 stroke-[var(--sp-fg)] fill-none"
+              strokeWidth={1.5}
+            >
               <path d="M4 12 L20 12 M12 4 L12 20" />
               <circle cx="12" cy="12" r="4" fill="var(--sp-fg)" />
             </svg>
           </div>
-          <span className="font-mono text-sm font-bold tracking-wider">SPLINTR</span>
+          <span className="font-mono text-sm font-bold tracking-wider">
+            SPLINTR
+          </span>
         </Link>
         <div className="flex-1" />
-        <Link href="/login" className="text-sm font-medium text-[#6A6D75] hover:text-[var(--sp-fg)] mr-4">
+        <Link
+          href="/login"
+          className="text-sm font-medium text-[#6A6D75] hover:text-[var(--sp-fg)] mr-4"
+        >
           Sign in
         </Link>
         <Link
@@ -95,7 +223,9 @@ export default function PricingPage() {
           <p className="font-mono text-xs font-bold tracking-[0.25em] text-[#6A6D75] uppercase mb-3">
             // Pricing
           </p>
-          <h1 className="font-sans text-4xl font-bold tracking-tight mb-4">Transparent Architecture</h1>
+          <h1 className="font-sans text-4xl font-bold tracking-tight mb-4">
+            Transparent Architecture
+          </h1>
           <p className="text-[#6A6D75] max-w-md mx-auto">
             Start free, scale as you grow. All plans include a 7-day trial.
           </p>
@@ -103,12 +233,18 @@ export default function PricingPage() {
 
         {/* Toggle */}
         <div className="flex items-center justify-center gap-4 mb-12">
-          <span className={`font-mono text-sm font-bold ${!annual ? "text-[var(--sp-fg)]" : "text-[#6A6D75]"}`}>
+          <span
+            className={`font-mono text-sm font-bold ${
+              !annual ? "text-[var(--sp-fg)]" : "text-[#6A6D75]"
+            }`}
+          >
             MONTHLY
           </span>
           <button
             onClick={() => setAnnual(!annual)}
-            className={`w-12 h-6 rounded-full transition-colors relative ${annual ? "bg-[var(--sp-fg)]" : "bg-[var(--sp-fg)]/20"}`}
+            className={`w-12 h-6 rounded-full transition-colors relative ${
+              annual ? "bg-[var(--sp-fg)]" : "bg-[var(--sp-fg)]/20"
+            }`}
           >
             <div
               className={`w-5 h-5 bg-background rounded-full shadow-sm absolute top-0.5 transition-all ${
@@ -116,7 +252,11 @@ export default function PricingPage() {
               }`}
             />
           </button>
-          <span className={`font-mono text-sm font-bold ${annual ? "text-[var(--sp-fg)]" : "text-[#6A6D75]"}`}>
+          <span
+            className={`font-mono text-sm font-bold ${
+              annual ? "text-[var(--sp-fg)]" : "text-[#6A6D75]"
+            }`}
+          >
             ANNUAL{" "}
             <span className="text-[#27C93F] bg-[#27C93F]/10 px-2 py-0.5 rounded text-xs ml-1">
               SAVE 17%
@@ -124,67 +264,105 @@ export default function PricingPage() {
           </span>
         </div>
 
+        {/* Error message */}
+        {error && (
+          <div className="max-w-md mx-auto mb-8 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl text-center">
+            {error}
+          </div>
+        )}
+
         {/* Plans */}
         <div className="grid md:grid-cols-3 gap-6">
-          {plans.map((plan) => (
-            <div
-              key={plan.tier}
-              className={`bg-background rounded-2xl p-8 flex flex-col relative ${
-                plan.popular
-                  ? "border-2 border-[#0A0A0C] shadow-lg scale-105 z-10"
-                  : "border border-foreground/5"
-              }`}
-            >
-              {plan.popular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[var(--sp-fg)] text-background font-mono text-[10px] font-bold px-3 py-1 rounded-full tracking-wider">
-                  MOST POPULAR
-                </div>
-              )}
-              <div className="font-mono text-xs font-bold tracking-wider text-[#6A6D75] uppercase mb-2">
-                {plan.tier}
-              </div>
-              <div className="flex items-baseline gap-1 mb-2">
-                <span className="text-4xl font-bold">
-                  ${annual ? Math.round(plan.yearlyPrice / 12) : plan.monthlyPrice}
-                </span>
-                <span className="text-[#6A6D75]">/mo</span>
-              </div>
-              {annual && (
-                <p className="text-xs text-[#6A6D75] mb-4">
-                  Billed annually (${plan.yearlyPrice}/yr)
-                </p>
-              )}
-              <p className="text-sm text-[#6A6D75] mb-6 pb-6 border-b border-foreground/5">
-                {plan.description}
-              </p>
-              <ul className="space-y-3 flex-1 mb-8">
-                {plan.features.map((feat) => (
-                  <li key={feat} className="flex items-start gap-2.5 text-sm">
-                    <Check className="w-4 h-4 text-[#27C93F] shrink-0 mt-0.5" />
-                    {feat}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/signup"
-                className={`h-12 rounded-xl text-sm font-bold flex items-center justify-center transition-all ${
+          {plans.map((plan) => {
+            const isLoading = loadingTier === plan.tierKey;
+
+            return (
+              <div
+                key={plan.tier}
+                className={`bg-background rounded-2xl p-8 flex flex-col relative ${
                   plan.popular
-                    ? "bg-[var(--sp-fg)] text-background hover:bg-foreground"
-                    : "border border-[#0A0A0C]/10 hover:border-[#0A0A0C]/30"
+                    ? "border-2 border-[#0A0A0C] shadow-lg scale-105 z-10"
+                    : "border border-foreground/5"
                 }`}
               >
-                {plan.cta}
-              </Link>
-            </div>
-          ))}
+                {plan.popular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[var(--sp-fg)] text-background font-mono text-[10px] font-bold px-3 py-1 rounded-full tracking-wider">
+                    MOST POPULAR
+                  </div>
+                )}
+                <div className="font-mono text-xs font-bold tracking-wider text-[#6A6D75] uppercase mb-2">
+                  {plan.tier}
+                </div>
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className="text-4xl font-bold">
+                    $
+                    {annual
+                      ? Math.round(plan.yearlyPrice / 12)
+                      : plan.monthlyPrice}
+                  </span>
+                  <span className="text-[#6A6D75]">/mo</span>
+                </div>
+                {annual && (
+                  <p className="text-xs text-[#6A6D75] mb-4">
+                    Billed annually (${plan.yearlyPrice}/yr)
+                  </p>
+                )}
+                <p className="text-sm text-[#6A6D75] mb-6 pb-6 border-b border-foreground/5">
+                  {plan.description}
+                </p>
+                <ul className="space-y-3 flex-1 mb-8">
+                  {plan.features.map((feat) => (
+                    <li key={feat} className="flex items-start gap-2.5 text-sm">
+                      <Check className="w-4 h-4 text-[#27C93F] shrink-0 mt-0.5" />
+                      {feat}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  onClick={() => handleCheckout(plan)}
+                  disabled={isLoading || loadingTier !== null}
+                  className={`h-12 rounded-xl text-sm font-bold flex items-center justify-center transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                    plan.popular
+                      ? "bg-[var(--sp-fg)] text-background hover:bg-foreground"
+                      : "border border-[#0A0A0C]/10 hover:border-[#0A0A0C]/30"
+                  }`}
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    plan.cta
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         <div className="text-center mt-12">
-          <Link href="/" className="text-sm text-[#6A6D75] hover:text-[var(--sp-fg)] flex items-center justify-center gap-1">
+          <Link
+            href="/"
+            className="text-sm text-[#6A6D75] hover:text-[var(--sp-fg)] flex items-center justify-center gap-1"
+          >
             <ArrowLeft className="w-4 h-4" /> Back to home
           </Link>
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Page export with Suspense boundary for useSearchParams ── */
+
+export default function PricingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#F5F6F8] flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-[#6A6D75]" />
+        </div>
+      }
+    >
+      <PricingContent />
+    </Suspense>
   );
 }
