@@ -415,15 +415,47 @@ export default function CreateContentPage() {
         await handleApprove(output);
       }
 
-      // Then mark as published
+      // Call the publish API to post to the platform
       const itemId = output.id || output.platform;
+      let publishData: { status: string; publishedUrl?: string; error?: string } | null = null;
+
+      try {
+        const publishRes = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            generationId: itemId,
+            platform: output.platform,
+            content: output.content,
+          }),
+        });
+
+        publishData = await publishRes.json();
+
+        if (!publishRes.ok) {
+          throw new Error(publishData?.error || "Failed to publish");
+        }
+      } catch (fetchErr) {
+        console.error("Publish API error:", fetchErr);
+        throw new Error(
+          publishData?.error ||
+          (fetchErr instanceof Error ? fetchErr.message : "Failed to reach publish API")
+        );
+      }
+
+      // Update local status
       await publishContent(itemId);
 
       setPublishedPlatforms((prev) => new Set(prev).add(output.platform));
-      setCardMessage(output.platform, `Published to ${platformName}!`, "success", 3000);
+
+      const urlMsg = publishData?.publishedUrl
+        ? ` View: ${publishData.publishedUrl}`
+        : "";
+      setCardMessage(output.platform, `Published to ${platformName}!${urlMsg}`, "success", 5000);
     } catch (error) {
       console.error("Publish error:", error);
-      setCardMessage(output.platform, "Failed to publish. Please try again.", "error");
+      const msg = error instanceof Error ? error.message : "Failed to publish. Please try again.";
+      setCardMessage(output.platform, msg, "error");
     } finally {
       setPublishingPlatform(null);
     }

@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   User,
   CreditCard,
   Globe,
   Bell,
-  Shield,
   Linkedin,
   Twitter,
   Instagram,
@@ -14,9 +13,23 @@ import {
   BookOpen,
   ExternalLink,
   Check,
-  X,
-  ChevronRight,
 } from "lucide-react";
+import {
+  getUserProfile,
+  updateUserProfile,
+  getWorkspaceSettings,
+  updateWorkspaceSettings,
+  getBillingInfo,
+  getConnections,
+  disconnectPlatform,
+  getNotificationPrefs,
+  updateNotificationPrefs,
+  type UserProfile,
+  type WorkspaceSettings,
+  type BillingInfo,
+  type ConnectionItem,
+  type NotificationPrefs,
+} from "@/lib/settings-store";
 
 /* ── tiny SVG icons for platforms without lucide icons ── */
 
@@ -44,6 +57,30 @@ function MetaIcon({ className }: { className?: string }) {
   );
 }
 
+/* ── Platform icon map ── */
+
+const platformIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+  linkedin: Linkedin,
+  x: Twitter,
+  instagram: Instagram,
+  youtube: Youtube,
+  tiktok: TikTokIcon,
+  threads: ThreadsIcon,
+  meta: MetaIcon,
+  blog: BookOpen,
+};
+
+const platformNames: Record<string, string> = {
+  linkedin: "LinkedIn",
+  x: "X / Twitter",
+  instagram: "Instagram",
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  threads: "Threads",
+  meta: "Meta",
+  blog: "Blog (WordPress)",
+};
+
 const tabs = [
   { id: "profile", label: "Profile", icon: User },
   { id: "billing", label: "Billing", icon: CreditCard },
@@ -51,19 +88,158 @@ const tabs = [
   { id: "notifications", label: "Notifications", icon: Bell },
 ];
 
-const connectedPlatforms = [
-  { id: "linkedin",  name: "LinkedIn",          icon: Linkedin,   connected: true,  username: "@johndoe" },
-  { id: "x",         name: "X / Twitter",       icon: Twitter,    connected: true,  username: "@johndoe_x" },
-  { id: "instagram", name: "Instagram",         icon: Instagram,  connected: false, username: null },
-  { id: "youtube",   name: "YouTube",           icon: Youtube,    connected: false, username: null },
-  { id: "tiktok",    name: "TikTok",            icon: TikTokIcon, connected: false, username: null },
-  { id: "threads",   name: "Threads",           icon: ThreadsIcon, connected: false, username: null },
-  { id: "meta",      name: "Meta",              icon: MetaIcon,   connected: false, username: null },
-  { id: "blog",      name: "Blog (WordPress)",  icon: BookOpen,   connected: false, username: null },
-];
+/* ── Skeleton component ── */
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-[var(--sp-fg)]/10 rounded ${className || ""}`} />;
+}
+
+/* ── Usage meter ── */
+
+function UsageMeter({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+  return (
+    <div className="p-3 bg-[var(--sp-bg)] rounded-lg">
+      <div className="text-xs font-mono text-[var(--sp-fg-light)] mb-1">{label}</div>
+      <div className="text-sm font-bold mb-2">{used} / {limit}</div>
+      <div className="w-full h-1.5 bg-[var(--sp-fg)]/10 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-[var(--sp-fg)] rounded-full transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
+
+  // Profile state
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [workspace, setWorkspace] = useState<WorkspaceSettings | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Billing state
+  const [billing, setBilling] = useState<BillingInfo | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+
+  // Connections state
+  const [connections, setConnections] = useState<ConnectionItem[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState(true);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
+  // Notifications state
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
+  const [notifLoading, setNotifLoading] = useState(true);
+
+  // Load profile + workspace
+  const loadProfile = useCallback(async () => {
+    setProfileLoading(true);
+    try {
+      const [p, w] = await Promise.all([getUserProfile(), getWorkspaceSettings()]);
+      setProfile(p);
+      setWorkspace(w);
+      setFullName(p.fullName || "");
+      setWorkspaceName(w.name);
+      setTimezone(w.timezone);
+    } catch (err) {
+      console.error("Failed to load profile:", err);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  // Load billing
+  const loadBilling = useCallback(async () => {
+    setBillingLoading(true);
+    try {
+      const b = await getBillingInfo();
+      setBilling(b);
+    } catch (err) {
+      console.error("Failed to load billing:", err);
+    } finally {
+      setBillingLoading(false);
+    }
+  }, []);
+
+  // Load connections
+  const loadConnections = useCallback(async () => {
+    setConnectionsLoading(true);
+    try {
+      const c = await getConnections();
+      setConnections(c);
+    } catch (err) {
+      console.error("Failed to load connections:", err);
+    } finally {
+      setConnectionsLoading(false);
+    }
+  }, []);
+
+  // Load notifications
+  const loadNotifications = useCallback(async () => {
+    setNotifLoading(true);
+    try {
+      const n = await getNotificationPrefs();
+      setNotifPrefs(n);
+    } catch (err) {
+      console.error("Failed to load notifications:", err);
+    } finally {
+      setNotifLoading(false);
+    }
+  }, []);
+
+  // Load data when tab changes
+  useEffect(() => {
+    if (activeTab === "profile") loadProfile();
+    if (activeTab === "billing") loadBilling();
+    if (activeTab === "connections") loadConnections();
+    if (activeTab === "notifications") loadNotifications();
+  }, [activeTab, loadProfile, loadBilling, loadConnections, loadNotifications]);
+
+  // Save profile + workspace
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    setProfileMessage(null);
+    try {
+      await Promise.all([
+        updateUserProfile({ full_name: fullName }),
+        updateWorkspaceSettings({ name: workspaceName, timezone }),
+      ]);
+      setProfileMessage({ type: "success", text: "Settings saved successfully." });
+      setTimeout(() => setProfileMessage(null), 3000);
+    } catch (err) {
+      setProfileMessage({ type: "error", text: "Failed to save settings. Please try again." });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  // Disconnect platform
+  const handleDisconnect = async (connectionId: string) => {
+    setDisconnecting(connectionId);
+    try {
+      await disconnectPlatform(connectionId);
+      await loadConnections();
+    } catch (err) {
+      console.error("Failed to disconnect:", err);
+    } finally {
+      setDisconnecting(null);
+    }
+  };
+
+  // Toggle notification pref
+  const handleToggleNotif = async (key: keyof NotificationPrefs) => {
+    if (!notifPrefs) return;
+    const updated = { ...notifPrefs, [key]: !notifPrefs[key] };
+    setNotifPrefs(updated);
+    await updateNotificationPrefs(updated);
+  };
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -95,42 +271,77 @@ export default function SettingsPage() {
         <div className="space-y-6">
           <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
             <h3 className="font-semibold mb-6 text-[var(--sp-fg)]">Personal Information</h3>
-            <div className="flex items-center gap-6 mb-8">
-              <div className="w-20 h-20 rounded-full bg-[var(--sp-bg)] flex items-center justify-center text-2xl font-bold text-[var(--sp-fg-light)]">
-                U
+
+            {profileLoading ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-6 mb-8">
+                  <Skeleton className="w-20 h-20 rounded-full" />
+                  <Skeleton className="w-28 h-9 rounded-lg" />
+                </div>
+                <div className="grid md:grid-cols-2 gap-5">
+                  <Skeleton className="h-11 rounded-lg" />
+                  <Skeleton className="h-11 rounded-lg" />
+                </div>
               </div>
-              <div>
-                <button className="h-9 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors">
-                  Upload Photo
-                </button>
-                <p className="text-xs text-[var(--sp-fg-light)] mt-2">JPG, PNG. Max 2MB.</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-6 mb-8">
+                  <div className="w-20 h-20 rounded-full bg-[var(--sp-bg)] flex items-center justify-center text-2xl font-bold text-[var(--sp-fg-light)]">
+                    {fullName ? fullName.charAt(0).toUpperCase() : "U"}
+                  </div>
+                  <div>
+                    <button className="h-9 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors">
+                      Upload Photo
+                    </button>
+                    <p className="text-xs text-[var(--sp-fg-light)] mt-2">JPG, PNG. Max 2MB.</p>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
+                      Full Name
+                    </label>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={profile?.email || ""}
+                      disabled
+                      className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm opacity-60 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {profileMessage && (
+              <div
+                className={`mt-4 px-4 py-2 rounded-lg text-sm ${
+                  profileMessage.type === "success"
+                    ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                    : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                }`}
+              >
+                {profileMessage.text}
               </div>
-            </div>
-            <div className="grid md:grid-cols-2 gap-5">
-              <div>
-                <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  defaultValue="John Doe"
-                  className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all"
-                />
-              </div>
-              <div>
-                <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  defaultValue="john@example.com"
-                  className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all"
-                />
-              </div>
-            </div>
+            )}
+
             <div className="mt-6 flex justify-end">
-              <button className="h-10 px-5 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors">
-                Save Changes
+              <button
+                onClick={handleSaveProfile}
+                disabled={profileSaving || profileLoading}
+                className="h-10 px-5 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors disabled:opacity-50"
+              >
+                {profileSaving ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>
@@ -138,34 +349,57 @@ export default function SettingsPage() {
           <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
             <h3 className="font-semibold mb-1">Workspace</h3>
             <p className="text-xs text-[var(--sp-fg-light)] mb-5">Manage your workspace settings</p>
-            <div className="grid md:grid-cols-2 gap-5">
-              <div>
-                <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
-                  Workspace Name
-                </label>
-                <input
-                  type="text"
-                  defaultValue="My Workspace"
-                  className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all"
-                />
+
+            {profileLoading ? (
+              <div className="grid md:grid-cols-2 gap-5">
+                <Skeleton className="h-11 rounded-lg" />
+                <Skeleton className="h-11 rounded-lg" />
               </div>
-              <div>
-                <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
-                  Timezone
-                </label>
-                <select className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)]">
-                  <option>Eastern Time (ET)</option>
-                  <option>Pacific Time (PT)</option>
-                  <option>GMT / UTC</option>
-                </select>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
+                    Workspace Name
+                  </label>
+                  <input
+                    type="text"
+                    value={workspaceName}
+                    onChange={(e) => setWorkspaceName(e.target.value)}
+                    className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block font-mono text-xs font-bold tracking-wider text-[var(--sp-fg-light)] mb-2 uppercase">
+                    Timezone
+                  </label>
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)]"
+                  >
+                    <option value="America/New_York">Eastern Time (ET)</option>
+                    <option value="America/Chicago">Central Time (CT)</option>
+                    <option value="America/Denver">Mountain Time (MT)</option>
+                    <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                    <option value="UTC">GMT / UTC</option>
+                    <option value="Europe/London">London (GMT)</option>
+                    <option value="Europe/Berlin">Central European (CET)</option>
+                    <option value="Asia/Tokyo">Japan (JST)</option>
+                    <option value="Asia/Kolkata">India (IST)</option>
+                    <option value="Australia/Sydney">Sydney (AEST)</option>
+                  </select>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="bg-background dark:bg-[#121214] rounded-xl border border-red-100 dark:border-red-900/30 p-6">
             <h3 className="font-semibold text-red-600 mb-1">Danger Zone</h3>
             <p className="text-xs text-[var(--sp-fg-light)] mb-4">Permanent actions that cannot be undone</p>
-            <button className="h-10 px-5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors">
+            <button
+              onClick={() => alert("Coming soon")}
+              className="h-10 px-5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
+            >
               Delete Account
             </button>
           </div>
@@ -176,40 +410,53 @@ export default function SettingsPage() {
       {activeTab === "billing" && (
         <div className="space-y-6">
           <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="font-semibold">Current Plan</h3>
-                <p className="text-xs text-[var(--sp-fg-light)]">Manage your subscription</p>
-              </div>
-              <span className="font-mono text-xs font-bold bg-[var(--sp-fg)] text-background px-3 py-1.5 rounded-full">
-                PRO
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1 mb-6">
-              <span className="text-4xl font-bold">$49</span>
-              <span className="text-[var(--sp-fg-light)]">/month</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              {[
-                { label: "Generations", value: "127 / 300" },
-                { label: "Platforms", value: "5 / 8" },
-                { label: "Voice Profiles", value: "3 / 5" },
-                { label: "Transcription", value: "4.2 / 10 hrs" },
-              ].map((item) => (
-                <div key={item.label} className="p-3 bg-[var(--sp-bg)] rounded-lg">
-                  <div className="text-xs font-mono text-[var(--sp-fg-light)] mb-1">{item.label}</div>
-                  <div className="text-sm font-bold">{item.value}</div>
+            {billingLoading ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-6">
+                  <Skeleton className="w-40 h-6 rounded" />
+                  <Skeleton className="w-16 h-7 rounded-full" />
                 </div>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button className="h-10 px-5 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors">
-                Upgrade to Business
-              </button>
-              <button className="h-10 px-5 border border-sp-fg/10 rounded-lg text-sm font-medium text-[var(--sp-fg-light)] hover:bg-[var(--sp-bg)] transition-colors flex items-center gap-2">
-                Manage Billing <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                <Skeleton className="w-24 h-10 rounded" />
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <Skeleton className="h-20 rounded-lg" />
+                  <Skeleton className="h-20 rounded-lg" />
+                  <Skeleton className="h-20 rounded-lg" />
+                </div>
+              </div>
+            ) : billing ? (
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="font-semibold">Current Plan</h3>
+                    <p className="text-xs text-[var(--sp-fg-light)]">
+                      Status: <span className="capitalize">{billing.status}</span>
+                    </p>
+                  </div>
+                  <span className="font-mono text-xs font-bold bg-[var(--sp-fg)] text-background px-3 py-1.5 rounded-full uppercase">
+                    {billing.tier}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                  <UsageMeter label="Generations" used={billing.generationsUsed} limit={billing.generationLimit} />
+                  <UsageMeter label="Platforms" used={billing.platformCount} limit={billing.platformLimit} />
+                  <UsageMeter label="Voice Profiles" used={billing.profileCount} limit={billing.profileLimit} />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => alert("Stripe integration coming soon")}
+                    className="h-10 px-5 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-medium hover:bg-foreground transition-colors"
+                  >
+                    Upgrade Plan
+                  </button>
+                  <button
+                    onClick={() => alert("Stripe integration coming soon")}
+                    className="h-10 px-5 border border-sp-fg/10 rounded-lg text-sm font-medium text-[var(--sp-fg-light)] hover:bg-[var(--sp-bg)] transition-colors flex items-center gap-2"
+                  >
+                    Manage Subscription <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
 
           <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
@@ -247,33 +494,62 @@ export default function SettingsPage() {
             <h3 className="font-semibold">Connected Platforms</h3>
             <p className="text-xs text-[var(--sp-fg-light)]">Manage your platform integrations for direct publishing</p>
           </div>
-          <div className="divide-y divide-black/5">
-            {connectedPlatforms.map((p) => (
-              <div key={p.id} className="p-5 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-[var(--sp-bg)] flex items-center justify-center text-[var(--sp-fg-light)]">
-                  <p.icon className="w-5 h-5" />
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-semibold">{p.name}</div>
-                  {p.connected && <div className="text-xs text-[var(--sp-fg-light)]">{p.username}</div>}
-                </div>
-                {p.connected ? (
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono font-bold text-[var(--sp-green)] flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5" /> Connected
-                    </span>
-                    <button className="h-8 px-3 border border-red-100 text-red-500 rounded-lg text-xs font-medium hover:bg-red-50 transition-colors">
-                      Disconnect
-                    </button>
+
+          {connectionsLoading ? (
+            <div className="divide-y divide-black/5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="p-5 flex items-center gap-4">
+                  <Skeleton className="w-10 h-10 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="w-24 h-4 rounded" />
+                    <Skeleton className="w-16 h-3 rounded" />
                   </div>
-                ) : (
-                  <button className="h-8 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-xs font-medium hover:bg-foreground transition-colors">
-                    Connect
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+                  <Skeleton className="w-20 h-8 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="divide-y divide-black/5">
+              {connections.map((c) => {
+                const IconComp = platformIcons[c.platform] || Globe;
+                const name = platformNames[c.platform] || c.platform;
+                return (
+                  <div key={c.id} className="p-5 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-[var(--sp-bg)] flex items-center justify-center text-[var(--sp-fg-light)]">
+                      <IconComp className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">{name}</div>
+                      {c.connected && c.username && (
+                        <div className="text-xs text-[var(--sp-fg-light)]">{c.username}</div>
+                      )}
+                    </div>
+                    {c.connected ? (
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-mono font-bold text-[var(--sp-green)] flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" /> Connected
+                        </span>
+                        <button
+                          onClick={() => handleDisconnect(c.id)}
+                          disabled={disconnecting === c.id}
+                          className="h-8 px-3 border border-red-100 text-red-500 rounded-lg text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          {disconnecting === c.id ? "..." : "Disconnect"}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => alert("OAuth integration coming soon")}
+                        className="h-8 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-xs font-medium hover:bg-foreground transition-colors"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -281,33 +557,49 @@ export default function SettingsPage() {
       {activeTab === "notifications" && (
         <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
           <h3 className="font-semibold mb-6">Notification Preferences</h3>
-          <div className="space-y-5">
-            {[
-              { label: "Generation complete", desc: "When AI finishes generating content", enabled: true },
-              { label: "Publishing reminders", desc: "Reminders for scheduled posts", enabled: true },
-              { label: "Weekly analytics digest", desc: "Performance summary every Monday", enabled: false },
-              { label: "Usage alerts", desc: "When approaching plan limits", enabled: true },
-              { label: "Product updates", desc: "New features and improvements", enabled: false },
-            ].map((notif) => (
-              <div key={notif.label} className="flex items-center justify-between py-2">
-                <div>
-                  <div className="text-sm font-medium">{notif.label}</div>
-                  <div className="text-xs text-[var(--sp-fg-light)]">{notif.desc}</div>
+
+          {notifLoading || !notifPrefs ? (
+            <div className="space-y-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between py-2">
+                  <div className="space-y-2">
+                    <Skeleton className="w-32 h-4 rounded" />
+                    <Skeleton className="w-48 h-3 rounded" />
+                  </div>
+                  <Skeleton className="w-11 h-6 rounded-full" />
                 </div>
-                <button
-                  className={`w-11 h-6 rounded-full transition-colors relative ${
-                    notif.enabled ? "bg-[var(--sp-green)]" : "bg-[var(--sp-fg)]/15"
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 bg-background rounded-full shadow-sm absolute top-0.5 transition-all ${
-                      notif.enabled ? "right-0.5" : "left-0.5"
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {([
+                { key: "generationAlerts" as const, label: "Generation complete", desc: "When AI finishes generating content" },
+                { key: "publishReminders" as const, label: "Publishing reminders", desc: "Reminders for scheduled posts" },
+                { key: "weeklyDigest" as const, label: "Weekly analytics digest", desc: "Performance summary every Monday" },
+                { key: "usageAlerts" as const, label: "Usage alerts", desc: "When approaching plan limits" },
+                { key: "productUpdates" as const, label: "Product updates", desc: "New features and improvements" },
+              ]).map((notif) => (
+                <div key={notif.key} className="flex items-center justify-between py-2">
+                  <div>
+                    <div className="text-sm font-medium">{notif.label}</div>
+                    <div className="text-xs text-[var(--sp-fg-light)]">{notif.desc}</div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotif(notif.key)}
+                    className={`w-11 h-6 rounded-full transition-colors relative ${
+                      notifPrefs[notif.key] ? "bg-[var(--sp-green)]" : "bg-[var(--sp-fg)]/15"
                     }`}
-                  />
-                </button>
-              </div>
-            ))}
-          </div>
+                  >
+                    <div
+                      className={`w-5 h-5 bg-background rounded-full shadow-sm absolute top-0.5 transition-all ${
+                        notifPrefs[notif.key] ? "right-0.5" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

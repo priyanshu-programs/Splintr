@@ -1,0 +1,56 @@
+{
+  "agents": {
+    "splintr-wave1-1773525687008-yld7": {
+      "agentId": "splintr-wave1-1773525687008-yld7",
+      "agentType": "coder",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "specialist",
+        "hiveRole": "specialist"
+      },
+      "createdAt": "2026-03-14T22:01:27.008Z",
+      "domain": "hive-mind"
+    },
+    "splintr-wave1-1773525687008-nbnc": {
+      "agentId": "splintr-wave1-1773525687008-nbnc",
+      "agentType": "coder",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "specialist",
+        "hiveRole": "specialist"
+      },
+      "createdAt": "2026-03-14T22:01:27.008Z",
+      "domain": "hive-mind"
+    },
+    "splintr-wave1-1773525687008-ly9n": {
+      "agentId": "splintr-wave1-1773525687008-ly9n",
+      "agentType": "coder",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "specialist",
+        "hiveRole": "specialist"
+      },
+      "createdAt": "2026-03-14T22:01:27.008Z",
+      "domain": "hive-mind"
+    },
+    "splintr-wave1-1773525687008-uc4z": {
+      "agentId": "splintr-wave1-1773525687008-uc4z",
+      "agentType": "coder",
+      "status": "idle",
+      "health": 1,
+      "taskCount": 0,
+      "config": {
+        "role": "specialist",
+        "hiveRole": "specialist"
+      },
+      "createdAt": "2026-03-14T22:01:27.008Z",
+      "domain": "hive-mind"
+    }
+  }
+}
