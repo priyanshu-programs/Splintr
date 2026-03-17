@@ -36,7 +36,28 @@ function readLocalProfiles(): VoiceProfileData[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const profiles = JSON.parse(raw) as VoiceProfileData[];
+      // Migrate: backfill missing tones on legacy profiles
+      let migrated = false;
+      const defaultTones: Record<string, string> = {
+        "Professional": "Authoritative",
+        "Casual & Witty": "Conversational",
+        "Educational": "Informative",
+      };
+      for (const p of profiles) {
+        if (!p.tone && defaultTones[p.name]) {
+          p.tone = defaultTones[p.name];
+          migrated = true;
+        }
+        if (!p.platformOverrides) {
+          p.platformOverrides = {};
+          migrated = true;
+        }
+      }
+      if (migrated) writeLocalProfiles(profiles);
+      return profiles;
+    }
   } catch {
     // fall through to seed
   }

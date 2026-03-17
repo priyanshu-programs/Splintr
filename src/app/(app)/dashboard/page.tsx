@@ -6,7 +6,9 @@ import { useAuth } from "@/lib/auth/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
 import Skeleton from "@/components/ui/Skeleton";
 import GenerationChart from "@/components/ui/GenerationChart";
-import type { Generation, PlatformType } from "@/lib/supabase/types";
+import type { ChartDataPoint } from "@/components/ui/GenerationChart";
+import type { PlatformType } from "@/lib/supabase/types";
+import { getWeeklyActivity, getAnalyticsOverview } from "@/lib/analytics-store";
 import {
   PenSquare,
   ArrowUpRight,
@@ -47,6 +49,7 @@ export default function DashboardPage() {
   const { workspace } = useAuth();
   const [upcomingItems, setUpcomingItems] = useState<UpcomingItem[]>([]);
   const [stats, setStats] = useState<Stats>({ generationsThisMonth: 0, publishedCount: 0, scheduledCount: 0 });
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,11 +59,7 @@ export default function DashboardPage() {
     const wsId = workspace.id;
 
     async function fetchData() {
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-
-      const [upcomingRes, monthCountRes, publishedRes, scheduledRes] = await Promise.all([
+      const [upcomingRes, overview, weeklyChart] = await Promise.all([
         // Upcoming scheduled
         supabase
           .from("generations")
@@ -70,24 +69,10 @@ export default function DashboardPage() {
           .gte("scheduled_for", new Date().toISOString())
           .order("scheduled_for", { ascending: true })
           .limit(4),
-        // Count: generations this month
-        supabase
-          .from("generations")
-          .select("id", { count: "exact", head: true })
-          .eq("workspace_id", wsId)
-          .gte("created_at", startOfMonth.toISOString()),
-        // Count: published
-        supabase
-          .from("generations")
-          .select("id", { count: "exact", head: true })
-          .eq("workspace_id", wsId)
-          .eq("status", "published"),
-        // Count: scheduled
-        supabase
-          .from("generations")
-          .select("id", { count: "exact", head: true })
-          .eq("workspace_id", wsId)
-          .eq("status", "scheduled"),
+        // Stats from analytics-store (consistent with /analytics page)
+        getAnalyticsOverview("30d"),
+        // Chart data from analytics-store
+        getWeeklyActivity("7d"),
       ]);
 
       setUpcomingItems(
@@ -100,10 +85,11 @@ export default function DashboardPage() {
       );
 
       setStats({
-        generationsThisMonth: monthCountRes.count ?? 0,
-        publishedCount: publishedRes.count ?? 0,
-        scheduledCount: scheduledRes.count ?? 0,
+        generationsThisMonth: overview.totalGenerations,
+        publishedCount: overview.publishedPosts,
+        scheduledCount: overview.scheduledPosts,
       });
+      setChartData(weeklyChart);
 
       setLoading(false);
     }
@@ -184,7 +170,7 @@ export default function DashboardPage() {
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Content Activity */}
         <div className="lg:col-span-2 bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6 h-[400px]">
-          <GenerationChart />
+          <GenerationChart data={chartData} />
         </div>
 
         {/* Upcoming schedule */}

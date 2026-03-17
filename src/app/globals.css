@@ -450,3 +450,84 @@ html.lenis, html.lenis body {
     display: none;
   }
 }
+
+/* ============================
+   BRUTALIST OVERHAUL (DASHBOARD/AUTH)
+   ============================ */
+
+.brutal-root {
+  /* Override all border radii */
+  --radius: 0px !important;
+  --radius-sm: 0px !important;
+  --radius-md: 0px !important;
+  --radius-lg: 0px !important;
+  --radius-xl: 0px !important;
+  --radius-2xl: 0px !important;
+  --radius-3xl: 0px !important;
+  --radius-4xl: 0px !important;
+  --radius-full: 0px !important;
+}
+
+.brutal-root * {
+  border-radius: 0 !important;
+}
+
+/* Hard Shadows and Borders for Interactive Elements and Cards */
+.brutal-root .border,
+.brutal-root [class*="border-"],
+.brutal-root .bg-background,
+.brutal-root .bg-card,
+.brutal-root [class*="bg-background"],
+.brutal-root [class*="bg-card"],
+.brutal-root button,
+.brutal-root input,
+.brutal-root textarea,
+.brutal-root select,
+.brutal-root [role="dialog"],
+.brutal-root [role="menu"] {
+  border: 2px solid var(--sp-fg) !important;
+  border-radius: 0 !important;
+}
+
+/* Explicit text color on inputs, textareas */
+.brutal-root input,
+.brutal-root textarea,
+.brutal-root select {
+  color: var(--sp-fg) !important;
+}
+
+.brutal-root .shadow-sm,
+.brutal-root .shadow,
+.brutal-root .shadow-md,
+.brutal-root .shadow-lg,
+.brutal-root .shadow-xl,
+.brutal-root .shadow-2xl,
+.brutal-root [class*="shadow"],
+.brutal-root button:not([variant="ghost"]):not([variant="link"]),
+.brutal-root .bg-card,
+.brutal-root [role="dialog"],
+.brutal-root [role="menu"] {
+  box-shadow: 4px 4px 0px 0px var(--sp-fg) !important;
+  transition: transform 0.1s, box-shadow 0.1s !important;
+}
+
+/* Hover translating action */
+.brutal-root button:not([variant="ghost"]):not([variant="link"]):hover,
+.brutal-root a[class*="bg-"]:hover,
+.brutal-root .hover\:-translate-y-1:hover {
+  transform: translate(-2px, -2px) !important;
+  box-shadow: 6px 6px 0px 0px var(--sp-fg) !important;
+}
+
+/* Active translating action */
+.brutal-root button:not([variant="ghost"]):not([variant="link"]):active,
+.brutal-root a[class*="bg-"]:active,
+.brutal-root .hover\:-translate-y-1:active {
+  transform: translate(4px, 4px) !important;
+  box-shadow: 0px 0px 0px 0px var(--sp-fg) !important;
+}
+
+/* Turn off transitions that feel too smooth for Brutalism */
+.brutal-root * {
+  transition-duration: 0ms !important;
+}

@@ -8,6 +8,7 @@
 
 import { MOCK_AUTH_ENABLED } from "@/lib/auth/mock-auth";
 import { createClient } from "@/lib/supabase/client";
+import { getConnections } from "@/lib/connections-store";
 
 /* ── Types ── */
 
@@ -20,9 +21,10 @@ export interface ApprovedItem {
   platform: string;
   outputType: string;
   content: string;
-  status: "ready" | "published";
+  status: "ready" | "published" | "draft";
   createdAt: string;
   wordCount: number;
+  scheduledFor?: string | null;
 }
 
 export interface LibraryContentItem {
@@ -40,6 +42,7 @@ export interface LibraryContentItem {
     outputType: string;
     content: string;
     status: string;
+    publishedUrl?: string;
   }[];
 }
 
@@ -238,7 +241,7 @@ export async function getLibraryItems(): Promise<LibraryContentItem[]> {
     .from("content_items")
     .select(`
       id, title, source_type, status, word_count, created_at,
-      generations (id, platform, output_type, generated_content, status)
+      generations (id, platform, output_type, generated_content, status, published_url)
     `)
     .eq("workspace_id", wsId)
     .order("created_at", { ascending: false });
@@ -265,6 +268,7 @@ export async function getLibraryItems(): Promise<LibraryContentItem[]> {
         outputType: g.output_type,
         content: g.generated_content || "",
         status: g.status,
+        publishedUrl: g.published_url || undefined,
       })),
     }));
 }
@@ -424,7 +428,14 @@ export async function deleteContentByBatch(batchId: string): Promise<void> {
  */
 export async function getConnectedPlatforms(): Promise<ConnectedPlatform[]> {
   if (MOCK_AUTH_ENABLED) {
-    return MOCK_CONNECTED_PLATFORMS;
+    // Read actual connection state from localStorage via connections-store
+    const connections = await getConnections();
+    return connections.map((c) => ({
+      id: c.id,
+      platform: c.platform,
+      username: c.platformUsername,
+      connected: c.isActive,
+    }));
   }
 
   // Real Supabase mode

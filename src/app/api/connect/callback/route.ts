@@ -179,26 +179,101 @@ export async function GET(request: NextRequest) {
     // ── Step 2: Fetch user profile ──
     let username: string | null = null;
     let platformUserId: string | null = null;
+    // For Instagram, we need the Page Access Token (not user token) for publishing
+    let effectiveAccessToken = accessToken;
 
-    try {
-      const profileRes = await httpsGet(
-        config.userInfoUrl,
-        {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json",
+    if (platform === "instagram") {
+      // Instagram Graph API flow:
+      // 1. Exchange short-lived token for long-lived token
+      // 2. Get Facebook Pages the user manages
+      // 3. Find the page with an Instagram Business Account
+      // 4. Store the Page Access Token + IG Business Account ID
+      try {
+        // Step 2a: Exchange for long-lived user token
+        const longLivedRes = await httpsGet(
+          `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${accessToken}`,
+          { Accept: "application/json" }
+        );
+
+        let longLivedToken = accessToken;
+        if (longLivedRes.status >= 200 && longLivedRes.status < 300) {
+          const llData = JSON.parse(longLivedRes.data);
+          if (llData.access_token) {
+            longLivedToken = llData.access_token;
+          }
+        } else {
+          console.warn("Failed to get long-lived token, using short-lived:", longLivedRes.status);
         }
-      );
 
-      if (profileRes.status >= 200 && profileRes.status < 300) {
-        const profile = JSON.parse(profileRes.data);
-        username = config.extractUsername(profile);
-        platformUserId = (profile.sub ?? profile.id ?? null) as string | null;
-      } else {
-        console.warn(`Profile fetch failed for ${platform}:`, profileRes.status, profileRes.data);
+        // Step 2b: Get Facebook Pages the user manages
+        const pagesRes = await httpsGet(
+          `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${longLivedToken}`,
+          { Accept: "application/json" }
+        );
+
+        if (pagesRes.status >= 200 && pagesRes.status < 300) {
+          const pagesData = JSON.parse(pagesRes.data);
+          const pages = pagesData.data as Array<Record<string, unknown>> | undefined;
+
+          // Find the first page with an Instagram Business Account
+          const pageWithIg = pages?.find((p) => p.instagram_business_account);
+
+          if (pageWithIg) {
+            const igAccount = pageWithIg.instagram_business_account as Record<string, unknown>;
+            platformUserId = igAccount.id as string;
+            // Use the Page Access Token for Instagram API calls
+            effectiveAccessToken = pageWithIg.access_token as string;
+
+            // Step 2c: Get the Instagram username
+            const igProfileRes = await httpsGet(
+              `https://graph.instagram.com/v21.0/${platformUserId}?fields=username,name&access_token=${effectiveAccessToken}`,
+              { Accept: "application/json" }
+            );
+
+            if (igProfileRes.status >= 200 && igProfileRes.status < 300) {
+              const igProfile = JSON.parse(igProfileRes.data);
+              username = igProfile.username ? `@${igProfile.username}` : igProfile.name || null;
+            }
+          } else {
+            console.error("No Facebook Page with an Instagram Business Account found");
+            return NextResponse.redirect(
+              new URL(`/setup?error=${encodeURIComponent("no_instagram_business_account: Connect an Instagram Business or Creator account to a Facebook Page first")}`, appUrl)
+            );
+          }
+        } else {
+          console.error("Failed to fetch Facebook Pages:", pagesRes.status, pagesRes.data);
+          return NextResponse.redirect(
+            new URL(`/setup?error=${encodeURIComponent("failed_to_fetch_pages")}`, appUrl)
+          );
+        }
+      } catch (igErr) {
+        console.error("Instagram account resolution error:", igErr);
+        return NextResponse.redirect(
+          new URL(`/setup?error=${encodeURIComponent("instagram_setup_failed")}`, appUrl)
+        );
       }
-    } catch (profileErr) {
-      console.warn(`Profile fetch error for ${platform}:`, profileErr);
-      // Non-fatal — continue without username
+    } else {
+      // Non-Instagram platforms: standard profile fetch
+      try {
+        const profileRes = await httpsGet(
+          config.userInfoUrl,
+          {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json",
+          }
+        );
+
+        if (profileRes.status >= 200 && profileRes.status < 300) {
+          const profile = JSON.parse(profileRes.data);
+          username = config.extractUsername(profile);
+          platformUserId = (profile.sub ?? profile.id ?? null) as string | null;
+        } else {
+          console.warn(`Profile fetch failed for ${platform}:`, profileRes.status, profileRes.data);
+        }
+      } catch (profileErr) {
+        console.warn(`Profile fetch error for ${platform}:`, profileErr);
+        // Non-fatal — continue without username
+      }
     }
 
     // ── Step 3: Store connection ──
@@ -207,8 +282,9 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(successUrl);
 
     // Set token cookie on the response object (avoids cookies() mutation issues)
+    // For Instagram, effectiveAccessToken is the Page Access Token (needed for Graph API publishing)
     response.cookies.set(`${platform}_token`, JSON.stringify({
-      accessToken,
+      accessToken: effectiveAccessToken,
       refreshToken,
       platformUserId,
       tokenExpiresAt,
@@ -233,7 +309,7 @@ export async function GET(request: NextRequest) {
       response.cookies.set("oauth_result", JSON.stringify({
         platform,
         username,
-        accessToken,
+        accessToken: effectiveAccessToken,
         refreshToken,
         tokenExpiresAt,
         platformUserId,
@@ -279,7 +355,7 @@ export async function GET(request: NextRequest) {
         const connectionData = {
           platform_user_id: platformUserId,
           platform_username: username,
-          access_token: accessToken,
+          access_token: effectiveAccessToken,
           refresh_token: refreshToken,
           token_expires_at: tokenExpiresAt,
           is_active: true,

@@ -8,6 +8,7 @@
 
 import { MOCK_AUTH_ENABLED } from "@/lib/auth/mock-auth";
 import { createClient } from "@/lib/supabase/client";
+import { getAggregatedMetrics, getTopByEngagement } from "@/lib/metrics-store";
 
 /* ── Types ── */
 
@@ -82,10 +83,32 @@ function periodToDays(period: string): number {
   return 7;
 }
 
+/** Format a date label appropriate for the period */
+function formatDateLabel(dateStr: string, period: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  if (period === "7d") {
+    return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()];
+  }
+  // 30d/90d: show "Mar 1", "Feb 15" etc.
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
+}
+
+/** Format large numbers: 1200 → "1.2K", 1500000 → "1.5M" */
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 /* ── Public API ── */
 
 export async function getAnalyticsOverview(period: string = "7d"): Promise<OverviewStats> {
   const days = periodToDays(period);
+
+  // Fetch real engagement metrics
+  const aggregated = await getAggregatedMetrics(period);
+  const hasMetrics = aggregated.totalImpressions > 0;
 
   if (MOCK_AUTH_ENABLED) {
     const items = readLocalItems();
@@ -94,16 +117,36 @@ export async function getAnalyticsOverview(period: string = "7d"): Promise<Overv
     const published = filtered.filter((i) => i.status === "published").length;
     const scheduled = filtered.filter((i) => i.status === "scheduled").length;
 
+    // Compare with previous period for change indicators
+    const prevCutoff = getDaysAgo(days * 2);
+    const prevFiltered = items.filter((i) => {
+      const d = new Date(i.createdAt);
+      return d >= prevCutoff && d < cutoff;
+    });
+    const prevPublished = prevFiltered.filter((i) => i.status === "published").length;
+    const prevScheduled = prevFiltered.filter((i) => i.status === "scheduled").length;
+
+    const genChange = filtered.length - prevFiltered.length;
+    const pubChange = published - prevPublished;
+    const schChange = scheduled - prevScheduled;
+
+    // Use real engagement rate if we have metrics, else fall back to publish rate
+    const engRate = hasMetrics
+      ? `${aggregated.avgEngagementRate}%`
+      : filtered.length > 0
+        ? `${(published / filtered.length * 100).toFixed(1)}%`
+        : "—";
+
     return {
       totalGenerations: filtered.length,
       publishedPosts: published,
       scheduledPosts: scheduled,
-      avgEngagement: "—",
+      avgEngagement: engRate,
       changes: {
-        generations: filtered.length > 0 ? `+${filtered.length}` : "0",
-        published: published > 0 ? `+${published}` : "0",
-        scheduled: scheduled > 0 ? `+${scheduled}` : "0",
-        engagement: "—",
+        generations: genChange >= 0 ? `+${genChange}` : `${genChange}`,
+        published: pubChange >= 0 ? `+${pubChange}` : `${pubChange}`,
+        scheduled: schChange >= 0 ? `+${schChange}` : `${schChange}`,
+        engagement: hasMetrics ? `${aggregated.totalImpressions} imp` : "—",
       },
     };
   }
@@ -122,26 +165,36 @@ export async function getAnalyticsOverview(period: string = "7d"): Promise<Overv
   const published = items.filter((g) => g.status === "published").length;
   const scheduled = items.filter((g) => g.status === "scheduled").length;
 
+  const engRate = hasMetrics
+    ? `${aggregated.avgEngagementRate}%`
+    : items.length > 0
+      ? `${(published / items.length * 100).toFixed(1)}%`
+      : "—";
+
   return {
     totalGenerations: items.length,
     publishedPosts: published,
     scheduledPosts: scheduled,
-    avgEngagement: "—",
+    avgEngagement: engRate,
     changes: {
       generations: items.length > 0 ? `+${items.length}` : "0",
       published: published > 0 ? `+${published}` : "0",
       scheduled: scheduled > 0 ? `+${scheduled}` : "0",
-      engagement: "—",
+      engagement: hasMetrics ? `${aggregated.totalImpressions} imp` : "—",
     },
   };
 }
 
-export async function getPlatformBreakdown(): Promise<PlatformStat[]> {
+export async function getPlatformBreakdown(period: string = "7d"): Promise<PlatformStat[]> {
+  const days = periodToDays(period);
+
   if (MOCK_AUTH_ENABLED) {
     const items = readLocalItems();
+    const cutoff = getDaysAgo(days);
+    const filtered = items.filter((i) => new Date(i.createdAt) >= cutoff);
     const byPlatform = new Map<string, { posts: number; published: number }>();
 
-    for (const item of items) {
+    for (const item of filtered) {
       const p = item.platform || "unknown";
       const existing = byPlatform.get(p) || { posts: 0, published: 0 };
       existing.posts++;
@@ -162,11 +215,13 @@ export async function getPlatformBreakdown(): Promise<PlatformStat[]> {
 
   const supabase = createClient();
   const wsId = await getWorkspaceId(supabase);
+  const cutoff = getDaysAgo(days).toISOString();
 
   const { data: generations } = await supabase
     .from("generations")
-    .select("platform, status")
-    .eq("workspace_id", wsId);
+    .select("platform, status, created_at")
+    .eq("workspace_id", wsId)
+    .gte("created_at", cutoff);
 
   const items = (generations as any[]) || [];
   const byPlatform = new Map<string, { posts: number; published: number }>();
@@ -189,11 +244,26 @@ export async function getPlatformBreakdown(): Promise<PlatformStat[]> {
   }));
 }
 
-export async function getTopPerforming(): Promise<TopItem[]> {
+export async function getTopPerforming(period: string = "7d"): Promise<TopItem[]> {
+  const days = periodToDays(period);
+
+  // Try to get real engagement-based top performers first
+  const topByEngagement = await getTopByEngagement(period, 4);
+  if (topByEngagement.length > 0) {
+    return topByEngagement.map((p) => ({
+      title: p.title,
+      engagement: `${p.engagementRate}%`,
+      impressions: formatNumber(p.impressions),
+    }));
+  }
+
+  // Fall back to generation-count ranking if no metrics exist
   if (MOCK_AUTH_ENABLED) {
     const items = readLocalItems();
+    const cutoff = getDaysAgo(days);
+    const filtered = items.filter((i) => new Date(i.createdAt) >= cutoff);
     const byTitle = new Map<string, number>();
-    for (const item of items) {
+    for (const item of filtered) {
       byTitle.set(item.title, (byTitle.get(item.title) || 0) + 1);
     }
     return Array.from(byTitle.entries())
@@ -208,10 +278,11 @@ export async function getTopPerforming(): Promise<TopItem[]> {
 
   const supabase = createClient();
   const wsId = await getWorkspaceId(supabase);
+  const cutoff = getDaysAgo(days).toISOString();
 
   const { data: contentItems } = await supabase
     .from("content_items")
-    .select("id, title, generations(id)")
+    .select("id, title, generations(id, created_at)")
     .eq("workspace_id", wsId)
     .order("created_at", { ascending: false })
     .limit(20);
@@ -220,8 +291,9 @@ export async function getTopPerforming(): Promise<TopItem[]> {
   return items
     .map((ci) => ({
       title: ci.title || "Untitled",
-      count: ci.generations?.length || 0,
+      count: (ci.generations || []).filter((g: any) => !g.created_at || g.created_at >= cutoff).length,
     }))
+    .filter((item) => item.count > 0)
     .sort((a, b) => b.count - a.count)
     .slice(0, 4)
     .map((item) => ({
@@ -233,7 +305,9 @@ export async function getTopPerforming(): Promise<TopItem[]> {
 
 export async function getWeeklyActivity(period: string = "7d"): Promise<WeeklyActivityPoint[]> {
   const days = periodToDays(period);
-  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  // For 7d show 7 daily points, 30d show ~10 points (every 3 days), 90d show ~12 points (weekly)
+  const bucketSize = period === "7d" ? 1 : period === "30d" ? 3 : 7;
 
   if (MOCK_AUTH_ENABLED) {
     const items = readLocalItems();
@@ -242,7 +316,7 @@ export async function getWeeklyActivity(period: string = "7d"): Promise<WeeklyAc
 
     // Group by date
     const byDate = new Map<string, { generations: number; published: number; scheduled: number }>();
-    for (let i = 0; i < Math.min(days, 14); i++) {
+    for (let i = 0; i < days; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().split("T")[0];
@@ -259,29 +333,25 @@ export async function getWeeklyActivity(period: string = "7d"): Promise<WeeklyAc
       }
     }
 
-    return Array.from(byDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-7)
-      .map(([dateStr, stats]) => ({
-        day: dayLabels[new Date(dateStr + "T12:00:00").getDay()],
-        ...stats,
-      }));
+    // Sort chronologically then bucket into display points
+    const sorted = Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return bucketDates(sorted, bucketSize, period);
   }
 
   const supabase = createClient();
   const wsId = await getWorkspaceId(supabase);
-  const cutoff = getDaysAgo(days).toISOString();
+  const cutoffISO = getDaysAgo(days).toISOString();
 
   const { data: generations } = await supabase
     .from("generations")
     .select("status, created_at")
     .eq("workspace_id", wsId)
-    .gte("created_at", cutoff);
+    .gte("created_at", cutoffISO);
 
   const items = (generations as any[]) || [];
   const byDate = new Map<string, { generations: number; published: number; scheduled: number }>();
 
-  for (let i = 0; i < Math.min(days, 14); i++) {
+  for (let i = 0; i < days; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().split("T")[0];
@@ -298,13 +368,30 @@ export async function getWeeklyActivity(period: string = "7d"): Promise<WeeklyAc
     }
   }
 
-  return Array.from(byDate.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-7)
-    .map(([dateStr, stats]) => ({
-      day: dayLabels[new Date(dateStr + "T12:00:00").getDay()],
-      ...stats,
-    }));
+  const sorted = Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b));
+  return bucketDates(sorted, bucketSize, period);
+}
+
+/** Aggregate daily entries into display buckets */
+function bucketDates(
+  sorted: [string, { generations: number; published: number; scheduled: number }][],
+  bucketSize: number,
+  period: string,
+): WeeklyActivityPoint[] {
+  const result: WeeklyActivityPoint[] = [];
+  for (let i = 0; i < sorted.length; i += bucketSize) {
+    const chunk = sorted.slice(i, i + bucketSize);
+    const totals = { generations: 0, published: 0, scheduled: 0 };
+    for (const [, stats] of chunk) {
+      totals.generations += stats.generations;
+      totals.published += stats.published;
+      totals.scheduled += stats.scheduled;
+    }
+    // Use the last date in the bucket for the label
+    const labelDate = chunk[chunk.length - 1][0];
+    result.push({ day: formatDateLabel(labelDate, period), ...totals });
+  }
+  return result;
 }
 
 /* ── Internal helpers ── */

@@ -64,7 +64,7 @@ const MOCK_PLATFORM_URLS: Record<string, (id: string) => string> = {
   wordpress: (id) => `https://mock.wordpress.com/mock-${id}`,
   blog: (id) => `https://mock.wordpress.com/mock-${id}`,
   threads: (id) => `https://threads.net/@mock/post/mock-${id}`,
-  bluesky: (id) => `https://bsky.app/profile/mock/post/${id}`,
+  meta: (id) => `https://facebook.com/mock/posts/${id}`,
 };
 
 /**
@@ -80,6 +80,7 @@ function getMockPublishedUrl(platform: string, generationId: string): string {
 
 /**
  * Post content to LinkedIn using the Posts API.
+ * Uses httpsRequest() for reliable IPv4 connections on Windows.
  * Returns the published post URL on success, or throws on failure.
  */
 async function publishToLinkedIn(
@@ -87,17 +88,16 @@ async function publishToLinkedIn(
   personId: string,
   content: string
 ): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const linkedInVersion = process.env.LINKEDIN_API_VERSION || "202601";
 
-  let res: Response;
+  let result;
   try {
-    res = await fetch("https://api.linkedin.com/rest/posts", {
+    result = await httpsRequest("https://api.linkedin.com/rest/posts", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
-        "LinkedIn-Version": process.env.LINKEDIN_API_VERSION || "202501",
+        "LinkedIn-Version": linkedInVersion,
         "X-Restli-Protocol-Version": "2.0.0",
       },
       body: JSON.stringify({
@@ -112,30 +112,35 @@ async function publishToLinkedIn(
         lifecycleState: "PUBLISHED",
         isReshareDisabledByAuthor: false,
       }),
-      signal: controller.signal,
-      cache: "no-store",
+      timeoutMs: 15000,
     });
-  } catch (fetchErr: unknown) {
-    const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-    const cause = fetchErr instanceof Error && (fetchErr as any).cause
-      ? JSON.stringify((fetchErr as any).cause, Object.getOwnPropertyNames((fetchErr as any).cause))
-      : "unknown";
-    console.error("LinkedIn fetch network error:", msg, "cause:", cause);
-    throw new Error(`LinkedIn network error: ${msg} (cause: ${cause})`);
-  } finally {
-    clearTimeout(timeout);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("LinkedIn request network error:", msg);
+    throw new Error(`LinkedIn network error: ${msg}`);
   }
 
-  if (!res.ok) {
-    const errBody = await res.text();
-    console.error("LinkedIn publish failed:", res.status, errBody);
-    throw new Error(`LinkedIn API error (${res.status}): ${errBody}`);
+  if (result.status < 200 || result.status >= 300) {
+    console.error("LinkedIn publish failed:", result.status, result.data);
+
+    if (result.status === 426) {
+      console.error(
+        `LinkedIn API version "${linkedInVersion}" is not active. ` +
+        `Update LINKEDIN_API_VERSION env var to a current version (YYYYMM format). ` +
+        `See: https://learn.microsoft.com/en-us/linkedin/marketing/versioning`
+      );
+      throw new Error(
+        `LinkedIn API version "${linkedInVersion}" is no longer active. ` +
+        `Please update the LINKEDIN_API_VERSION environment variable to a current version.`
+      );
+    }
+
+    throw new Error(`LinkedIn API error (${result.status}): ${result.data}`);
   }
 
   // LinkedIn returns the post URN in the x-restli-id header
-  const postUrn = res.headers.get("x-restli-id");
+  const postUrn = result.headers["x-restli-id"];
   if (postUrn) {
-    // URN format: urn:li:share:123456 — extract the ID for the URL
     const shareId = postUrn.replace("urn:li:share:", "");
     return `https://www.linkedin.com/feed/update/urn:li:share:${shareId}/`;
   }
@@ -166,33 +171,90 @@ async function getPlatformToken(
 
 /**
  * Publish content to a platform API.
- * Currently implements LinkedIn; other platforms return mock URLs.
+ * Implements: LinkedIn, X/Twitter, Instagram, YouTube, Bluesky, Threads, Blog/WordPress.
  */
 async function publishToPlatformApi(
   platform: string,
   content: string,
-  generationId: string
-): Promise<string> {
-  if (platform.toLowerCase() === "linkedin") {
-    const token = await getPlatformToken("linkedin");
-    if (token) {
-      return publishToLinkedIn(token.accessToken, token.platformUserId, content);
-    }
-    console.warn("No LinkedIn token found — falling back to mock URL");
-  }
+  generationId: string,
+  title?: string,
+  imageUrl?: string
+): Promise<{ url: string; platformPostId?: string }> {
+  const { publishToX, publishToInstagram, publishToYouTube, publishToWordPress, publishToMeta, publishToThreads } = await import("@/lib/platform-publishers");
 
-  // TODO: Implement other platforms (x/twitter, instagram, youtube, etc.)
-  return getMockPublishedUrl(platform, generationId);
+  const platformKey = platform.toLowerCase();
+  const token = await getPlatformToken(platformKey);
+
+  switch (platformKey) {
+    case "linkedin": {
+      if (!token) {
+        throw new Error("LinkedIn is not connected. Please connect it in Settings first.");
+      }
+      const url = await publishToLinkedIn(token.accessToken, token.platformUserId, content);
+      return { url };
+    }
+
+    case "x":
+    case "twitter": {
+      if (!token) {
+        throw new Error("X/Twitter is not connected. Please connect it in Settings first.");
+      }
+      const result = await publishToX(token.accessToken, content);
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    case "instagram": {
+      if (!token) {
+        throw new Error("Instagram is not connected. Please connect it in Settings first.");
+      }
+      const result = await publishToInstagram(token.accessToken, token.platformUserId, content, imageUrl);
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    case "youtube": {
+      if (!token) {
+        throw new Error("YouTube is not connected. Please connect it in Settings first.");
+      }
+      const result = await publishToYouTube(token.accessToken, content);
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    case "blog":
+    case "wordpress": {
+      const result = await publishToWordPress(content, title || "Untitled Post");
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    case "meta": {
+      if (!token) {
+        throw new Error("Meta is not connected. Please connect it in Settings first.");
+      }
+      const result = await publishToMeta(token.accessToken, token.platformUserId, content);
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    case "threads": {
+      if (!token) {
+        throw new Error("Threads is not connected. Please connect it in Settings first.");
+      }
+      const result = await publishToThreads(token.accessToken, token.platformUserId, content);
+      return { url: result.publishedUrl, platformPostId: result.platformPostId };
+    }
+
+    default:
+      return { url: getMockPublishedUrl(platform, generationId) };
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { generationId, platform, scheduledFor, content } = body as {
+    const { generationId, platform, scheduledFor, content, imageUrl } = body as {
       generationId: string;
       platform: string;
       scheduledFor?: string;
       content?: string;
+      imageUrl?: string;
     };
 
     if (!generationId || !platform) {
@@ -218,9 +280,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Try real platform posting if we have a token, otherwise use mock URL
-      let publishedUrl: string;
+      let publishResult: { url: string; platformPostId?: string };
       try {
-        publishedUrl = await publishToPlatformApi(platform, content || "", generationId);
+        publishResult = await publishToPlatformApi(platform, content || "", generationId, undefined, imageUrl);
       } catch (err) {
         console.error(`Failed to publish to ${platform}:`, err);
         return NextResponse.json(
@@ -231,7 +293,8 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         status: "published",
-        publishedUrl,
+        publishedUrl: publishResult.url,
+        platformPostId: publishResult.platformPostId || null,
         platform,
         generationId,
         publishedAt: now,
@@ -325,12 +388,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Publish immediately via platform API
-    let publishedUrl: string;
+    let publishResult: { url: string; platformPostId?: string };
     try {
-      publishedUrl = await publishToPlatformApi(
+      publishResult = await publishToPlatformApi(
         platform,
         (generation as any).generated_content || "",
-        generationId
+        generationId,
+        (generation as any).title,
+        imageUrl
       );
     } catch (err) {
       console.error(`Failed to publish to ${platform}:`, err);
@@ -346,7 +411,10 @@ export async function POST(request: NextRequest) {
       .update({
         status: "published",
         published_at: now,
-        published_url: publishedUrl,
+        published_url: publishResult.url,
+        metadata: {
+          platformPostId: publishResult.platformPostId || null,
+        },
       })
       .eq("id", generationId);
 
@@ -360,7 +428,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       status: "published",
-      publishedUrl,
+      publishedUrl: publishResult.url,
+      platformPostId: publishResult.platformPostId || null,
       platform,
       generationId,
       publishedAt: now,

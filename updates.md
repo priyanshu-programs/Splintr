@@ -15,6 +15,12 @@
 - **`src/app/api/publish/route.ts`**: Fixed "fetch failed" error caused by Next.js patched `fetch` interfering with LinkedIn API calls. Added `cache: "no-store"`, `AbortController` timeout (15s), and detailed error logging with cause capture.
 - OAuth connect flow verified working correctly — no changes needed.
 
+#### Fix LinkedIn API Version 426 Error (version 202501 sunset)
+- **`src/app/api/publish/route.ts`**: Updated `LinkedIn-Version` from `"202501"` (sunset) to `"202601"` (January 2026 — the latest version per [LinkedIn docs](https://learn.microsoft.com/en-us/linkedin/marketing/versioning?view=li-lms-2026-02)). Active versions as of March 2026: `202503`–`202602`. LinkedIn sunsets API versions after ~1 year.
+- **`src/app/api/publish/route.ts`**: Switched `publishToLinkedIn()` from `fetch()` to the existing `httpsRequest()` helper for reliable IPv4 connections on Windows (avoids IPv6/timeout issues).
+- **`src/app/api/publish/route.ts`**: Added specific 426 error handling with actionable message directing user to update `LINKEDIN_API_VERSION` env var when versions sunset in the future.
+- Removed `AbortController`/`setTimeout` (handled internally by `httpsRequest`).
+
 #### LinkedIn Real Posting Integration
 - **`src/lib/oauth-config.ts`**: Re-added `w_member_social` scope to LinkedIn OAuth — required for posting content. User must enable "Share on LinkedIn" product in LinkedIn Developer Portal.
 - **`src/app/api/connect/callback/route.ts`**: Added persistent httpOnly cookie (`linkedin_token`) storing access token and platform user ID so the publish API route can use it server-side.

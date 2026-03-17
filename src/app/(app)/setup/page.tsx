@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import gsap from "gsap";
 import { useSearchParams } from "next/navigation";
 import {
   Linkedin,
@@ -22,6 +21,7 @@ import {
   consumeOAuthResult,
   type PlatformConnection,
 } from "@/lib/connections-store";
+import { useToast } from "@/components/ui/toaster";
 
 /* ── platform registry ── */
 
@@ -38,7 +38,7 @@ const PLATFORM_META: PlatformMeta[] = [
   { id: "youtube", name: "YouTube", icon: Youtube },
   { id: "tiktok", name: "TikTok", icon: () => <TikTokIcon /> },
   { id: "threads", name: "Threads", icon: () => <ThreadsIcon /> },
-  { id: "bluesky", name: "Bluesky", icon: () => <BlueskyIcon /> },
+  { id: "meta", name: "Meta", icon: () => <MetaIcon /> },
   { id: "blog", name: "Blog (WordPress)", icon: BookOpen },
 ];
 
@@ -60,10 +60,10 @@ function ThreadsIcon() {
   );
 }
 
-function BlueskyIcon() {
+function MetaIcon() {
   return (
     <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
-      <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.785 2.627 3.6 3.476 6.158 3.228-4.41.68-5.784 2.852-3.249 5.024C6.886 21.27 11.35 21.418 12 15.9c.65 5.518 5.114 5.37 8.467 2.599 2.535-2.172 1.161-4.344-3.25-5.024 2.559.248 5.374-.601 6.159-3.228.246-.828.624-5.79.624-6.479 0-.688-.139-1.86-.902-2.203-.66-.3-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z" />
+      <path d="M6.915 4.03c-1.968 0-3.202 1.14-4.157 2.81C1.532 8.803.715 11.49.715 13.71c0 2.04.918 3.54 2.93 3.54 1.563 0 2.863-1.06 4.168-3.04.876-1.33 1.66-2.95 2.31-4.53l.69-1.69c.63-1.53 1.38-3.19 2.38-4.39C14.493 2.1 16.023 1.3 17.753 1.3c2.16 0 3.79 1.07 4.85 2.83.93 1.54 1.4 3.5 1.4 5.73 0 2.4-.56 4.55-1.68 6.26-1.19 1.81-2.95 2.88-5.18 2.88-1.19 0-2.24-.37-3.07-1.05-.78-.63-1.36-1.52-1.72-2.57l-.49 1.2c-.42 1.02-.96 1.98-1.63 2.72-.92 1.02-2.07 1.7-3.49 1.7-2.01 0-3.57-.84-4.6-2.31C1.1 17.1.5 15.22.5 13.04c0-2.72.83-5.72 2.17-8.08C4.22 2.2 6.32.5 8.92.5c1.54 0 2.8.56 3.72 1.46.84.82 1.44 1.91 1.8 3.14l-.96 2.36c-.31-1.2-.81-2.18-1.5-2.86-.72-.71-1.62-1.07-2.7-1.07-.52 0-1.01.1-1.43.31l.06.14zm.12 1.66c-.34.5-.68 1.12-1.01 1.85l-.4.92c-.96 2.24-1.75 4.2-2.73 5.87-1.1 1.87-2.12 2.68-3.27 2.68-.86 0-1.46-.53-1.46-1.73 0-1.78.68-4.13 1.6-5.88.78-1.48 1.68-2.37 2.7-2.37.45 0 .83.16 1.13.45.27.26.47.6.6 1.01l.55-1.37c.2-.48.42-.92.66-1.3.57-.92 1.24-1.46 2.03-1.46.33 0 .6.1.78.29.14.15.22.35.22.6 0 .36-.17.79-.4 1.26l-.07.17z" />
     </svg>
   );
 }
@@ -127,88 +127,7 @@ function ConnectInfoModal({
   );
 }
 
-/* ── toast ── */
 
-function Toast({
-  message,
-  type,
-  onDismiss,
-}: {
-  message: string;
-  type: "success" | "error";
-  onDismiss: () => void;
-}) {
-  const toastRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let ctx = gsap.context(() => {
-      gsap.from(toastRef.current, {
-        y: 25,
-        opacity: 0,
-        scale: 0.9,
-        duration: 0.4,
-        ease: "power3.out",
-      });
-    });
-
-    const timer = setTimeout(() => {
-      gsap.to(toastRef.current, {
-        y: 15,
-        opacity: 0,
-        scale: 0.9,
-        duration: 0.3,
-        ease: "power2.in",
-        onComplete: onDismiss,
-      });
-    }, 3500);
-
-    return () => {
-      clearTimeout(timer);
-      ctx.revert();
-    };
-  }, [onDismiss]);
-
-  return (
-    <div
-      ref={toastRef}
-      className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 px-5 py-3 rounded-full shadow-2xl border backdrop-blur-xl text-sm font-medium ${
-        type === "success"
-          ? "bg-[#111111]/90 border-white/10 text-white"
-          : "bg-[#111111]/90 border-red-500/20 text-red-400"
-      }`}
-    >
-      <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 ${
-        type === "success" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-500"
-      }`}>
-        {type === "success" ? (
-          <Check className="w-3.5 h-3.5" strokeWidth={3} />
-        ) : (
-          <AlertCircle className="w-3.5 h-3.5" strokeWidth={3} />
-        )}
-      </div>
-      <p className="tracking-tight">{message}</p>
-      <div className="w-px h-4 bg-white/15 mx-1" />
-      <button
-        onClick={() => {
-          gsap.to(toastRef.current, {
-            y: 15,
-            opacity: 0,
-            scale: 0.9,
-            duration: 0.3,
-            ease: "power2.in",
-            onComplete: onDismiss,
-          });
-        }}
-        className="opacity-50 hover:opacity-100 transition-opacity shrink-0"
-      >
-        <span className="sr-only">Close</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4">
-          <path d="M18 6L6 18M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-  );
-}
 
 /* ── skeleton ── */
 
@@ -234,7 +153,7 @@ export default function SetupPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [modalInfo, setModalInfo] = useState<{ platformName: string; platformId: string; message: string } | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const { toast } = useToast();
 
   // Load connections on mount
   const loadConnections = useCallback(async () => {
@@ -261,7 +180,7 @@ export default function SetupPage() {
       // Consume OAuth result cookie (mock mode: persists token data to localStorage)
       consumeOAuthResult();
       loadConnections();
-      setToast({ message: `Successfully connected ${connected}!`, type: "success" });
+      toast({ message: `Successfully connected ${connected}!`, type: "success" });
       // Clean URL
       window.history.replaceState({}, "", "/setup");
     }
@@ -269,7 +188,7 @@ export default function SetupPage() {
       const msg = error === "missing_params"
         ? "OAuth callback missing required parameters."
         : `Connection failed: ${decodeURIComponent(error)}`;
-      setToast({ message: msg, type: "error" });
+      toast({ message: msg, type: "error" });
       window.history.replaceState({}, "", "/setup");
     }
   }, [searchParams]);
@@ -304,7 +223,7 @@ export default function SetupPage() {
       }
     } catch (err) {
       console.error("Connect failed:", err);
-      setToast({ message: "Failed to initiate connection. Please try again.", type: "error" });
+      toast({ message: "Failed to initiate connection. Please try again.", type: "error" });
     } finally {
       setActionLoading(null);
     }
@@ -317,10 +236,10 @@ export default function SetupPage() {
       await disconnectPlatform(platformId);
       await loadConnections();
       const meta = PLATFORM_META.find((p) => p.id === platformId);
-      setToast({ message: `${meta?.name || platformId} disconnected.`, type: "error" });
+      toast({ message: `${meta?.name || platformId} disconnected.`, type: "error" });
     } catch (err) {
       console.error("Disconnect failed:", err);
-      setToast({ message: "Failed to disconnect. Please try again.", type: "error" });
+      toast({ message: "Failed to disconnect. Please try again.", type: "error" });
     } finally {
       setActionLoading(null);
     }
@@ -333,13 +252,6 @@ export default function SetupPage() {
 
   return (
     <>
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onDismiss={() => setToast(null)}
-        />
-      )}
 
       {modalInfo && (
         <ConnectInfoModal

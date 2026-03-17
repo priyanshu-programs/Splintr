@@ -53,14 +53,25 @@ const OAUTH_CONFIGS: Record<string, OAuthPlatformConfig> = {
     },
   },
   instagram: {
-    authUrl: "https://api.instagram.com/oauth/authorize",
-    tokenUrl: "https://api.instagram.com/oauth/access_token",
-    userInfoUrl: "https://graph.instagram.com/me",
-    scopes: ["user_profile", "user_media"],
-    clientIdEnv: "INSTAGRAM_CLIENT_ID",
-    clientSecretEnv: "INSTAGRAM_CLIENT_SECRET",
+    // Instagram Graph API requires Facebook Login OAuth flow.
+    // The Facebook App must have "Instagram Graph API" product added.
+    authUrl: "https://www.facebook.com/v21.0/dialog/oauth",
+    tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
+    // After token exchange, callback resolves IG Business Account from FB Pages
+    userInfoUrl: "https://graph.facebook.com/v21.0/me",
+    scopes: [
+      "pages_show_list",
+      "pages_read_engagement",
+    ],
+    clientIdEnv: "INSTAGRAM_APP_ID",
+    clientSecretEnv: "INSTAGRAM_APP_SECRET",
     responseType: "code",
-    extractUsername: (profile) => profile.username as string | null,
+    extractUsername: (profile) => {
+      // Instagram username is resolved in the callback via Pages → IG Business Account
+      const igUsername = profile.ig_username as string | undefined;
+      const name = profile.name as string | undefined;
+      return igUsername || name || null;
+    },
   },
   youtube: {
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -103,15 +114,15 @@ const OAUTH_CONFIGS: Record<string, OAuthPlatformConfig> = {
     responseType: "code",
     extractUsername: (profile) => profile.username as string | null,
   },
-  bluesky: {
-    authUrl: "https://bsky.social/xrpc/com.atproto.server.createSession",
-    tokenUrl: "https://bsky.social/xrpc/com.atproto.server.createSession",
-    userInfoUrl: "https://bsky.social/xrpc/app.bsky.actor.getProfile",
-    scopes: [], // AT Protocol uses app passwords, not OAuth scopes
-    clientIdEnv: "BLUESKY_CLIENT_ID",
-    clientSecretEnv: "BLUESKY_CLIENT_SECRET",
+  meta: {
+    authUrl: "https://www.facebook.com/v21.0/dialog/oauth",
+    tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
+    userInfoUrl: "https://graph.facebook.com/v21.0/me",
+    scopes: ["pages_manage_posts", "pages_read_engagement", "public_profile"],
+    clientIdEnv: "META_CLIENT_ID",
+    clientSecretEnv: "META_CLIENT_SECRET",
     responseType: "code",
-    extractUsername: (profile) => profile.handle as string | null,
+    extractUsername: (profile) => profile.name as string | null,
   },
 };
 

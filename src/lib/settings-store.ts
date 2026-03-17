@@ -38,13 +38,6 @@ export interface BillingInfo {
   profileLimit: number;
 }
 
-export interface ConnectionItem {
-  id: string;
-  platform: string;
-  username: string | null;
-  connected: boolean;
-}
-
 export interface NotificationPrefs {
   generationAlerts: boolean;
   publishReminders: boolean;
@@ -57,7 +50,6 @@ export interface NotificationPrefs {
 
 const PROFILE_KEY = "splintr_user_profile";
 const WORKSPACE_KEY = "splintr_workspace_settings";
-const CONNECTIONS_KEY = "splintr_connections";
 const NOTIFICATION_KEY = "splintr_notification_prefs";
 
 /* ── Default notification prefs ── */
@@ -69,19 +61,6 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   usageAlerts: true,
   productUpdates: false,
 };
-
-/* ── Mock connected platforms ── */
-
-const MOCK_CONNECTIONS: ConnectionItem[] = [
-  { id: "linkedin", platform: "linkedin", username: "@johndoe", connected: true },
-  { id: "x", platform: "x", username: "@johndoe_x", connected: true },
-  { id: "instagram", platform: "instagram", username: null, connected: false },
-  { id: "youtube", platform: "youtube", username: null, connected: false },
-  { id: "tiktok", platform: "tiktok", username: null, connected: false },
-  { id: "threads", platform: "threads", username: null, connected: false },
-  { id: "meta", platform: "meta", username: null, connected: false },
-  { id: "blog", platform: "blog", username: null, connected: false },
-];
 
 /* ── localStorage helpers ── */
 
@@ -310,58 +289,6 @@ export async function getBillingInfo(): Promise<BillingInfo> {
     profileCount: profileCount || 0,
     profileLimit: (plan as any)?.voice_profile_limit || 5,
   };
-}
-
-/* ── Connections ── */
-
-export async function getConnections(): Promise<ConnectionItem[]> {
-  if (MOCK_AUTH_ENABLED) {
-    const stored = readLocal<ConnectionItem[] | null>(CONNECTIONS_KEY, null);
-    return stored ?? MOCK_CONNECTIONS;
-  }
-
-  const supabase = createClient();
-  const wsId = await getWorkspaceId(supabase);
-
-  const { data, error } = await supabase
-    .from("platform_connections")
-    .select("id, platform, platform_username, is_active")
-    .eq("workspace_id", wsId);
-
-  if (error || !data) {
-    return [];
-  }
-
-  return data.map((pc: any) => ({
-    id: pc.id,
-    platform: pc.platform,
-    username: pc.platform_username,
-    connected: pc.is_active,
-  }));
-}
-
-export async function disconnectPlatform(connectionId: string): Promise<void> {
-  if (MOCK_AUTH_ENABLED) {
-    const stored = readLocal<ConnectionItem[] | null>(CONNECTIONS_KEY, null);
-    const connections = stored ?? [...MOCK_CONNECTIONS];
-    const idx = connections.findIndex((c) => c.id === connectionId);
-    if (idx !== -1) {
-      connections[idx].connected = false;
-      connections[idx].username = null;
-    }
-    writeLocal(CONNECTIONS_KEY, connections);
-    return;
-  }
-
-  const supabase = createClient();
-
-  const { error } = await (supabase.from("platform_connections") as any)
-    .update({ is_active: false })
-    .eq("id", connectionId);
-
-  if (error) {
-    throw new Error(error.message || "Failed to disconnect platform");
-  }
 }
 
 /* ── Notifications (localStorage both modes) ── */
