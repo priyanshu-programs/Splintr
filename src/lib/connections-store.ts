@@ -30,7 +30,7 @@ const DEFAULT_CONNECTIONS: PlatformConnection[] = [
   { id: "youtube", platform: "youtube", platformUsername: null, isActive: false, connectedAt: null },
   { id: "tiktok", platform: "tiktok", platformUsername: null, isActive: false, connectedAt: null },
   { id: "threads", platform: "threads", platformUsername: null, isActive: false, connectedAt: null },
-  { id: "bluesky", platform: "bluesky", platformUsername: null, isActive: false, connectedAt: null },
+  { id: "meta", platform: "meta", platformUsername: null, isActive: false, connectedAt: null },
   { id: "blog", platform: "blog", platformUsername: null, isActive: false, connectedAt: null },
 ];
 

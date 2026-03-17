@@ -32,6 +32,7 @@ export default function VoiceProfilesPage() {
   // Create form state
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
+  const [createTone, setCreateTone] = useState("");
   const [createSliders, setCreateSliders] = useState([
     { label: "Analytical/Emotional", from: "Analytical", to: "Emotional", value: 50 },
     { label: "Formal/Casual", from: "Formal", to: "Casual", value: 50 },
@@ -41,6 +42,7 @@ export default function VoiceProfilesPage() {
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [editTone, setEditTone] = useState("");
   const [editSliders, setEditSliders] = useState<VoiceProfileData["sliders"]>([]);
 
   // Delete confirm state
@@ -49,6 +51,15 @@ export default function VoiceProfilesPage() {
   // Writing sample state
   const [showSampleInput, setShowSampleInput] = useState(false);
   const [newSampleText, setNewSampleText] = useState("");
+
+  // Platform override state
+  const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+  const [platformTone, setPlatformTone] = useState("");
+  const [platformSliders, setPlatformSliders] = useState([
+    { label: "Analytical/Emotional", from: "Analytical", to: "Emotional", value: 50 },
+    { label: "Formal/Casual", from: "Formal", to: "Casual", value: 50 },
+    { label: "Concise/Descriptive", from: "Concise", to: "Descriptive", value: 50 },
+  ]);
 
   const activeProfile = profiles.find((p) => p.id === selectedId) || null;
 
@@ -82,10 +93,12 @@ export default function VoiceProfilesPage() {
     try {
       const created = await createVoiceProfile({
         name: createName.trim(),
+        tone: createTone.trim(),
         sliders: createSliders,
       });
       setShowCreate(false);
       setCreateName("");
+      setCreateTone("");
       setCreateSliders([
         { label: "Analytical/Emotional", from: "Analytical", to: "Emotional", value: 50 },
         { label: "Formal/Casual", from: "Formal", to: "Casual", value: 50 },
@@ -103,6 +116,7 @@ export default function VoiceProfilesPage() {
   function startEdit(profile: VoiceProfileData) {
     setEditingId(profile.id);
     setEditName(profile.name);
+    setEditTone(profile.tone);
     setEditSliders(profile.sliders.map((s) => ({ ...s })));
   }
 
@@ -112,6 +126,7 @@ export default function VoiceProfilesPage() {
     try {
       await updateVoiceProfile(editingId, {
         name: editName.trim(),
+        tone: editTone.trim(),
         sliders: editSliders,
       });
       setEditingId(null);
@@ -195,6 +210,88 @@ export default function VoiceProfilesPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // Platform key mapping for display names
+  const platformKeyMap: Record<string, string> = {
+    "LinkedIn": "linkedin",
+    "X / Twitter": "x",
+    "Instagram": "instagram",
+    "YouTube": "youtube",
+    "TikTok": "tiktok",
+    "Threads": "threads",
+    "Meta": "meta",
+    "Blog": "blog",
+  };
+
+  function openPlatformOverride(displayName: string) {
+    if (!activeProfile) return;
+    const key = platformKeyMap[displayName];
+    const override = (activeProfile.platformOverrides?.[key] || {}) as {
+      tone?: string;
+      sliders?: VoiceProfileData["sliders"];
+    };
+    setPlatformTone(override.tone || "");
+    setPlatformSliders(
+      override.sliders?.map((s) => ({ ...s })) ||
+      activeProfile.sliders.map((s) => ({ ...s }))
+    );
+    setEditingPlatform(displayName);
+  }
+
+  async function handleSavePlatformOverride() {
+    if (!activeProfile || !editingPlatform) return;
+    const key = platformKeyMap[editingPlatform];
+    setSaving(true);
+    try {
+      const existingOverrides = { ...(activeProfile.platformOverrides || {}) };
+      // If tone is empty and sliders match base profile, remove the override
+      const slidersMatch = platformSliders.every((s, i) =>
+        activeProfile.sliders[i] && s.value === activeProfile.sliders[i].value
+      );
+      if (!platformTone.trim() && slidersMatch) {
+        delete existingOverrides[key];
+      } else {
+        existingOverrides[key] = {
+          tone: platformTone.trim(),
+          sliders: platformSliders,
+        };
+      }
+      await updateVoiceProfile(activeProfile.id, {
+        platformOverrides: existingOverrides,
+      });
+      setEditingPlatform(null);
+      await refresh();
+    } catch (err) {
+      console.error("Failed to save platform override:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleResetPlatformOverride() {
+    if (!activeProfile || !editingPlatform) return;
+    const key = platformKeyMap[editingPlatform];
+    setSaving(true);
+    try {
+      const existingOverrides = { ...(activeProfile.platformOverrides || {}) };
+      delete existingOverrides[key];
+      await updateVoiceProfile(activeProfile.id, {
+        platformOverrides: existingOverrides,
+      });
+      setEditingPlatform(null);
+      await refresh();
+    } catch (err) {
+      console.error("Failed to reset platform override:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function hasPlatformOverride(displayName: string): boolean {
+    if (!activeProfile) return false;
+    const key = platformKeyMap[displayName];
+    return !!activeProfile.platformOverrides?.[key];
   }
 
   /* ── Loading skeleton ── */
@@ -310,15 +407,27 @@ export default function VoiceProfilesPage() {
                   </button>
                 </div>
 
-                <div className="mb-6">
-                  <label className="block text-xs font-mono text-[var(--sp-fg-light)] mb-2">Profile Name</label>
-                  <input
-                    type="text"
-                    value={createName}
-                    onChange={(e) => setCreateName(e.target.value)}
-                    placeholder="e.g. Professional, Casual..."
-                    className="w-full h-10 px-3 rounded-lg border border-foreground/10 bg-[var(--sp-bg)] text-sm text-[var(--sp-fg)] placeholder:text-[var(--sp-fg-light)] focus:outline-none focus:border-[var(--sp-fg)]"
-                  />
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="block text-xs font-mono text-[var(--sp-fg-light)] mb-2">Profile Name</label>
+                    <input
+                      type="text"
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      placeholder="e.g. Professional, Casual..."
+                      className="w-full h-10 px-3 rounded-lg border border-foreground/10 bg-[var(--sp-bg)] text-sm text-[var(--sp-fg)] placeholder:text-[var(--sp-fg-light)] focus:outline-none focus:border-[var(--sp-fg)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono text-[var(--sp-fg-light)] mb-2">Tone</label>
+                    <input
+                      type="text"
+                      value={createTone}
+                      onChange={(e) => setCreateTone(e.target.value)}
+                      placeholder="e.g. Authoritative, Friendly, Witty..."
+                      className="w-full h-10 px-3 rounded-lg border border-foreground/10 bg-[var(--sp-bg)] text-sm text-[var(--sp-fg)] placeholder:text-[var(--sp-fg-light)] focus:outline-none focus:border-[var(--sp-fg)]"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-5 mb-6">
@@ -371,12 +480,22 @@ export default function VoiceProfilesPage() {
                   <div className="flex items-center justify-between mb-6">
                     <div>
                       {editingId === activeProfile.id ? (
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="text-xl font-bold bg-transparent border-b-2 border-[var(--sp-fg)] focus:outline-none text-[var(--sp-fg)]"
-                        />
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            placeholder="Profile name"
+                            className="text-xl font-bold bg-transparent border-b-2 border-[var(--sp-fg)] focus:outline-none text-[var(--sp-fg)]"
+                          />
+                          <input
+                            type="text"
+                            value={editTone}
+                            onChange={(e) => setEditTone(e.target.value)}
+                            placeholder="Tone (e.g. Authoritative, Friendly...)"
+                            className="text-sm bg-transparent border-b border-[var(--sp-fg)]/50 focus:outline-none text-[var(--sp-fg-light)] w-full"
+                          />
+                        </div>
                       ) : (
                         <h2 className="text-xl font-bold text-[var(--sp-fg)]">{activeProfile.name}</h2>
                       )}
@@ -574,13 +693,112 @@ export default function VoiceProfilesPage() {
                 <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
                   <h3 className="font-semibold mb-1 text-[var(--sp-fg)]">Platform Overrides</h3>
                   <p className="text-xs text-[var(--sp-fg-light)] mb-4">Customize voice settings per platform</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {["LinkedIn", "X / Twitter", "Instagram", "Blog"].map((platform) => (
-                      <div key={platform} className="p-4 rounded-xl border border-sp-fg/10 hover:border-sp-fg/20 transition-colors cursor-pointer">
-                        <div className="text-sm font-medium mb-1">{platform}</div>
-                        <div className="text-xs text-[var(--sp-fg-light)]">Using default settings</div>
+
+                  {/* Platform edit panel */}
+                  {editingPlatform && (
+                    <div className="mb-4 p-4 rounded-xl border border-[var(--sp-fg)]/20 bg-[var(--sp-bg)]">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-sm font-semibold text-[var(--sp-fg)]">{editingPlatform} Override</h4>
+                        <button
+                          onClick={() => setEditingPlatform(null)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--sp-fg-light)] hover:bg-foreground/5 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    ))}
+
+                      <div className="mb-4">
+                        <label className="block text-xs font-mono text-[var(--sp-fg-light)] mb-2">
+                          Tone Override <span className="opacity-50">(leave empty to use profile default)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={platformTone}
+                          onChange={(e) => setPlatformTone(e.target.value)}
+                          placeholder={activeProfile.tone || "e.g. Conversational, Bold..."}
+                          className="w-full h-9 px-3 rounded-lg border border-foreground/10 bg-background dark:bg-[#121214] text-sm text-[var(--sp-fg)] placeholder:text-[var(--sp-fg-light)] focus:outline-none focus:border-[var(--sp-fg)]"
+                        />
+                      </div>
+
+                      <div className="space-y-4 mb-4">
+                        {platformSliders.map((slider, i) => (
+                          <div key={slider.label}>
+                            <div className="flex justify-between text-xs font-mono text-[var(--sp-fg-light)] mb-1.5">
+                              <span>{slider.from}</span>
+                              <span>{slider.to}</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={slider.value}
+                              onChange={(e) => {
+                                const updated = [...platformSliders];
+                                updated[i] = { ...updated[i], value: parseInt(e.target.value) };
+                                setPlatformSliders(updated);
+                              }}
+                              className="w-full"
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2 justify-end">
+                        {hasPlatformOverride(editingPlatform) && (
+                          <button
+                            onClick={handleResetPlatformOverride}
+                            disabled={saving}
+                            className="h-8 px-3 rounded-lg border border-red-200 dark:border-red-800 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          >
+                            Reset to Default
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setEditingPlatform(null)}
+                          className="h-8 px-3 rounded-lg border border-foreground/10 text-sm text-[var(--sp-fg-light)] hover:bg-foreground/5 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSavePlatformOverride}
+                          disabled={saving}
+                          className="h-8 px-3 bg-[var(--sp-fg)] text-background rounded-lg text-sm font-semibold hover:bg-foreground transition-colors disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {saving && <Loader2 className="w-3 h-3 animate-spin" />}
+                          Save Override
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {["LinkedIn", "X / Twitter", "Instagram", "YouTube", "TikTok", "Threads", "Meta", "Blog"].map((platform) => {
+                      const hasOverride = hasPlatformOverride(platform);
+                      const key = platformKeyMap[platform];
+                      const override = hasOverride
+                        ? (activeProfile.platformOverrides[key] as { tone?: string })
+                        : null;
+                      return (
+                        <button
+                          key={platform}
+                          onClick={() => openPlatformOverride(platform)}
+                          className={`p-4 rounded-xl border text-left transition-colors ${
+                            editingPlatform === platform
+                              ? "border-[var(--sp-fg)] bg-[var(--sp-bg)]"
+                              : hasOverride
+                                ? "border-[var(--sp-green)]/30 bg-[var(--sp-green)]/5 hover:border-[var(--sp-green)]/50"
+                                : "border-sp-fg/10 hover:border-sp-fg/20"
+                          }`}
+                        >
+                          <div className="text-sm font-medium mb-1">{platform}</div>
+                          <div className="text-xs text-[var(--sp-fg-light)]">
+                            {hasOverride
+                              ? `Custom${override?.tone ? ` · ${override.tone}` : ""}`
+                              : "Using default settings"}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </>

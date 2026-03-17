@@ -1,0 +1,42 @@
+
+> splintr-app@0.1.0 build
+> next build
+
+ΓÜá Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\rijup\pnpm-lock.yaml as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\package-lock.json
+
+Γû▓ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+ΓÜá The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 errors:
+./OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/src/app/globals.css
+Error evaluating Node.js code
+CssSyntaxError: C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\src\app\globals.css:477:14: Unclosed bracket
+    at Input.error (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/input.js:135:16) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:4651:22]
+    at Parser.unclosedBracket (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/parser.js:579:22) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:5821:26]
+    at Parser.other (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/parser.js:425:35) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:5686:39]
+    at Parser.parse (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/parser.js:472:16) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:5724:26]
+    at parse (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/parse.js:11:12) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:5861:16]
+    at new LazyResult (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/lazy-result.js:165:16) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:6113:24]
+    at Processor.process (OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/node_modules/postcss/lib/processor.js:53:14) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\2511a_45a061b0._.js:6579:20]
+    at transform (turbopack:///[turbopack-node]/transforms/postcss.ts:70:51) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__9242ea40._.js:146:52]
+    at run (turbopack:///[turbopack-node]/ipc/evaluate.ts:92:29) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__670b9c06._.js:443:37]
+    at run (turbopack:///[turbopack-node]/ipc/evaluate.ts:115:11) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__670b9c06._.js:464:25]
+
+Import trace:
+  Client Component Browser:
+    ./OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/src/app/globals.css [Client Component Browser]
+    ./OneDrive/Documents/1abc- Proj/splintr-copy/splintr-app/src/app/layout.tsx [Server Component]
+
+
+    at transform (turbopack:///[turbopack-node]/transforms/postcss.ts:70:51) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__9242ea40._.js:146:52])
+    at run (turbopack:///[turbopack-node]/ipc/evaluate.ts:92:29) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__670b9c06._.js:443:37])
+    at run (turbopack:///[turbopack-node]/ipc/evaluate.ts:115:11) [C:\Users\rijup\OneDrive\Documents\1abc- Proj\splintr-copy\splintr-app\.next\build\chunks\[root-of-the-server]__670b9c06._.js:464:25])

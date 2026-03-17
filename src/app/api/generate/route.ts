@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
         systemPrompt: string;
         tone: string;
         writingSamples: string[];
+        platformOverrides?: Record<string, { tone?: string; sliders?: { label: string; from: string; to: string; value: number }[] }>;
       };
     };
 

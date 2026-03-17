@@ -2,8 +2,11 @@
  * scheduling-store.ts
  *
  * Dual-mode scheduling layer for the Scheduling page.
- * - Mock mode (NEXT_PUBLIC_MOCK_AUTH=true): uses localStorage
- * - Real mode: uses Supabase
+ * - Mock mode: reads/writes from content-store's localStorage (splintr_approved_items)
+ * - Real mode: uses Supabase generations table
+ *
+ * A "scheduled" post is one with scheduledFor set.
+ * Display status is derived from both DB status and scheduledFor presence.
  */
 
 import { MOCK_AUTH_ENABLED } from "@/lib/auth/mock-auth";
@@ -11,118 +14,64 @@ import { createClient } from "@/lib/supabase/client";
 
 /* ── Types ── */
 
+export type ScheduledPostStatus = "scheduled" | "ready" | "published" | "draft" | "archived";
+
 export interface ScheduledPost {
   id: string;
   title: string;
   platform: string;
-  status: "scheduled" | "published" | "draft";
+  /** Display status — derived from DB status + scheduledFor presence */
+  status: ScheduledPostStatus;
   scheduledFor: string | null;
   publishedAt: string | null;
   content: string;
   createdAt: string;
 }
 
-/* ── localStorage helpers ── */
+/* ── Mock-mode helpers (shared localStorage with content-store) ── */
 
-const STORAGE_KEY = "splintr_scheduled_posts";
+const CONTENT_STORAGE_KEY = "splintr_approved_items";
 
-function readLocalPosts(): ScheduledPost[] {
+interface MockItem {
+  id: string;
+  title: string;
+  platform: string;
+  status: string;
+  content: string;
+  createdAt: string;
+  scheduledFor?: string | null;
+  [key: string]: unknown;
+}
+
+function readMockItems(): MockItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(CONTENT_STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function writeLocalPosts(posts: ScheduledPost[]) {
+function writeMockItems(items: MockItem[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
+  localStorage.setItem(CONTENT_STORAGE_KEY, JSON.stringify(items));
 }
 
-/** Seed sample data into localStorage when empty. */
-function seedIfEmpty(): ScheduledPost[] {
-  const existing = readLocalPosts();
-  if (existing.length > 0) return existing;
-
-  const now = new Date();
-
-  function offsetDate(days: number, hours: number = 0, minutes: number = 0): Date {
-    const d = new Date(now);
-    d.setDate(d.getDate() + days);
-    d.setHours(hours, minutes, 0, 0);
-    return d;
-  }
-
-  const seed: ScheduledPost[] = [
-    {
-      id: "sched-1",
-      title: "AI Marketing Strategy",
-      platform: "linkedin",
-      status: "scheduled",
-      scheduledFor: offsetDate(1, 10, 0).toISOString(),
-      publishedAt: null,
-      content: "How AI is transforming marketing strategy for modern businesses...",
-      createdAt: now.toISOString(),
-    },
-    {
-      id: "sched-2",
-      title: "Quick Product Update",
-      platform: "x",
-      status: "scheduled",
-      scheduledFor: offsetDate(2, 14, 0).toISOString(),
-      publishedAt: null,
-      content: "Excited to share our latest product updates...",
-      createdAt: now.toISOString(),
-    },
-    {
-      id: "sched-3",
-      title: "Behind the Scenes",
-      platform: "instagram",
-      status: "draft",
-      scheduledFor: null,
-      publishedAt: null,
-      content: "A peek behind the curtain at our creative process...",
-      createdAt: offsetDate(-2).toISOString(),
-    },
-    {
-      id: "sched-4",
-      title: "Content Repurposing Guide",
-      platform: "blog",
-      status: "published",
-      scheduledFor: offsetDate(-1, 9, 0).toISOString(),
-      publishedAt: offsetDate(-1, 9, 0).toISOString(),
-      content: "The ultimate guide to repurposing your content across platforms...",
-      createdAt: offsetDate(-3).toISOString(),
-    },
-    {
-      id: "sched-5",
-      title: "Weekly Thread",
-      platform: "x",
-      status: "published",
-      scheduledFor: offsetDate(-2, 11, 0).toISOString(),
-      publishedAt: offsetDate(-2, 11, 0).toISOString(),
-      content: "Thread: 10 things I learned about content creation this week...",
-      createdAt: offsetDate(-4).toISOString(),
-    },
-    {
-      id: "sched-6",
-      title: "Team Productivity Tips",
-      platform: "linkedin",
-      status: "draft",
-      scheduledFor: null,
-      publishedAt: null,
-      content: "5 productivity tips our team swears by for remote work...",
-      createdAt: offsetDate(-5).toISOString(),
-    },
-  ];
-
-  writeLocalPosts(seed);
-  return seed;
+function mockItemToPost(item: MockItem): ScheduledPost {
+  return {
+    id: item.id,
+    title: item.title,
+    platform: item.platform,
+    status: deriveStatus(item.status, item.scheduledFor || null),
+    scheduledFor: item.scheduledFor || null,
+    publishedAt: item.status === "published" ? item.createdAt : null,
+    content: item.content,
+    createdAt: item.createdAt,
+  };
 }
 
-/* ── Supabase helper ── */
+/* ── Supabase helpers ── */
 
 async function getWorkspaceId(supabase: ReturnType<typeof createClient>): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -141,32 +90,63 @@ async function getWorkspaceId(supabase: ReturnType<typeof createClient>): Promis
   return (workspaces[0] as any).id;
 }
 
+/**
+ * Derive display status from DB row.
+ * A generation with status=ready and scheduledFor set → "scheduled".
+ */
+function deriveStatus(dbStatus: string, scheduledFor: string | null): ScheduledPostStatus {
+  if (scheduledFor && (dbStatus === "ready" || dbStatus === "scheduled")) {
+    return "scheduled";
+  }
+  if (dbStatus === "published") return "published";
+  if (dbStatus === "draft") return "draft";
+  if (dbStatus === "archived") return "archived";
+  return "ready";
+}
+
+/** Map a Supabase row to ScheduledPost */
+function mapRow(row: any): ScheduledPost {
+  return {
+    id: row.id,
+    title: row.content_items?.title || "Untitled",
+    platform: row.platform,
+    status: deriveStatus(row.status, row.scheduled_for),
+    scheduledFor: row.scheduled_for,
+    publishedAt: row.published_at,
+    content: row.generated_content || "",
+    createdAt: row.created_at,
+  };
+}
+
 /* ── Public API ── */
 
 /**
  * Get all posts in a date range.
  */
 export async function getScheduledPosts(startDate: string, endDate: string): Promise<ScheduledPost[]> {
+  const start = new Date(startDate).getTime();
+  const end = new Date(endDate).getTime();
+
   if (MOCK_AUTH_ENABLED) {
-    const posts = seedIfEmpty();
-    const start = new Date(startDate).getTime();
-    const end = new Date(endDate).getTime();
-
-    return posts.filter((p) => {
-      const sFor = p.scheduledFor ? new Date(p.scheduledFor).getTime() : null;
-      const pAt = p.publishedAt ? new Date(p.publishedAt).getTime() : null;
-      const created = new Date(p.createdAt).getTime();
-
-      // Include if scheduledFor or publishedAt falls in range
-      if (sFor && sFor >= start && sFor <= end) return true;
-      if (pAt && pAt >= start && pAt <= end) return true;
-      // Include drafts based on createdAt
-      if (p.status === "draft" && created >= start && created <= end) return true;
-      return false;
-    });
+    return readMockItems()
+      .map(mockItemToPost)
+      .filter((p) => {
+        if (p.scheduledFor) {
+          const t = new Date(p.scheduledFor).getTime();
+          if (t >= start && t <= end) return true;
+        }
+        if (p.publishedAt) {
+          const t = new Date(p.publishedAt).getTime();
+          if (t >= start && t <= end) return true;
+        }
+        if (p.status === "draft" || p.status === "ready") {
+          const t = new Date(p.createdAt).getTime();
+          if (t >= start && t <= end) return true;
+        }
+        return false;
+      });
   }
 
-  // Real Supabase mode
   const supabase = createClient();
   const wsId = await getWorkspaceId(supabase);
 
@@ -177,41 +157,47 @@ export async function getScheduledPosts(startDate: string, endDate: string): Pro
       content_items (title)
     `)
     .eq("workspace_id", wsId)
-    .or(
-      `scheduled_for.gte.${startDate},scheduled_for.lte.${endDate},` +
-      `published_at.gte.${startDate},published_at.lte.${endDate},` +
-      `status.in.(scheduled,published,draft)`
-    )
-    .order("scheduled_for", { ascending: true });
+    .order("scheduled_for", { ascending: true, nullsFirst: false });
 
   if (error || !data) {
     console.error("Failed to fetch scheduled posts:", error);
     return [];
   }
 
-  return data.map((row: any) => ({
-    id: row.id,
-    title: row.content_items?.title || "Untitled",
-    platform: row.platform,
-    status: row.status,
-    scheduledFor: row.scheduled_for,
-    publishedAt: row.published_at,
-    content: row.generated_content || "",
-    createdAt: row.created_at,
-  }));
+  return (data as any[])
+    .map(mapRow)
+    .filter((p) => {
+      if (p.scheduledFor) {
+        const t = new Date(p.scheduledFor).getTime();
+        if (t >= start && t <= end) return true;
+      }
+      if (p.publishedAt) {
+        const t = new Date(p.publishedAt).getTime();
+        if (t >= start && t <= end) return true;
+      }
+      if (p.status === "draft") {
+        const t = new Date(p.createdAt).getTime();
+        if (t >= start && t <= end) return true;
+      }
+      return false;
+    });
 }
 
 /**
  * Schedule a post for a specific date/time.
  */
 export async function schedulePost(generationId: string, scheduledFor: string): Promise<void> {
+  if (new Date(scheduledFor).getTime() < Date.now()) {
+    throw new Error("Cannot schedule a post in the past");
+  }
+
   if (MOCK_AUTH_ENABLED) {
-    const posts = readLocalPosts();
-    const idx = posts.findIndex((p) => p.id === generationId);
+    const items = readMockItems();
+    const idx = items.findIndex((i) => i.id === generationId);
     if (idx !== -1) {
-      posts[idx].scheduledFor = scheduledFor;
-      posts[idx].status = "scheduled";
-      writeLocalPosts(posts);
+      items[idx].scheduledFor = scheduledFor;
+      items[idx].status = "ready";
+      writeMockItems(items);
     }
     return;
   }
@@ -219,7 +205,7 @@ export async function schedulePost(generationId: string, scheduledFor: string): 
   const supabase = createClient();
   const { error } = await (supabase
     .from("generations") as any)
-    .update({ scheduled_for: scheduledFor, status: "scheduled" })
+    .update({ scheduled_for: scheduledFor, status: "ready" })
     .eq("id", generationId);
 
   if (error) {
@@ -228,16 +214,16 @@ export async function schedulePost(generationId: string, scheduledFor: string): 
 }
 
 /**
- * Unschedule a post — clear scheduled_for, set status to draft.
+ * Unschedule a post — clear scheduledFor, set status to draft.
  */
 export async function unschedulePost(generationId: string): Promise<void> {
   if (MOCK_AUTH_ENABLED) {
-    const posts = readLocalPosts();
-    const idx = posts.findIndex((p) => p.id === generationId);
+    const items = readMockItems();
+    const idx = items.findIndex((i) => i.id === generationId);
     if (idx !== -1) {
-      posts[idx].scheduledFor = null;
-      posts[idx].status = "draft";
-      writeLocalPosts(posts);
+      items[idx].scheduledFor = null;
+      items[idx].status = "draft";
+      writeMockItems(items);
     }
     return;
   }
@@ -261,14 +247,11 @@ export async function getUpcomingPosts(): Promise<ScheduledPost[]> {
   const weekLater = new Date();
   weekLater.setDate(now.getDate() + 7);
 
-  const startDate = now.toISOString();
-  const endDate = weekLater.toISOString();
-
   if (MOCK_AUTH_ENABLED) {
-    const posts = seedIfEmpty();
-    return posts
+    return readMockItems()
+      .map(mockItemToPost)
       .filter((p) => {
-        if (p.status !== "scheduled" || !p.scheduledFor) return false;
+        if (!p.scheduledFor) return false;
         const t = new Date(p.scheduledFor).getTime();
         return t >= now.getTime() && t <= weekLater.getTime();
       })
@@ -285,9 +268,9 @@ export async function getUpcomingPosts(): Promise<ScheduledPost[]> {
       content_items (title)
     `)
     .eq("workspace_id", wsId)
-    .eq("status", "scheduled")
-    .gte("scheduled_for", startDate)
-    .lte("scheduled_for", endDate)
+    .not("scheduled_for", "is", null)
+    .gte("scheduled_for", now.toISOString())
+    .lte("scheduled_for", weekLater.toISOString())
     .order("scheduled_for", { ascending: true });
 
   if (error || !data) {
@@ -295,16 +278,39 @@ export async function getUpcomingPosts(): Promise<ScheduledPost[]> {
     return [];
   }
 
-  return data.map((row: any) => ({
-    id: row.id,
-    title: row.content_items?.title || "Untitled",
-    platform: row.platform,
-    status: row.status,
-    scheduledFor: row.scheduled_for,
-    publishedAt: row.published_at,
-    content: row.generated_content || "",
-    createdAt: row.created_at,
-  }));
+  return (data as any[]).map(mapRow);
+}
+
+/**
+ * Get posts that can be scheduled — ready or draft, with no scheduledFor set.
+ */
+export async function getUnscheduledPosts(): Promise<ScheduledPost[]> {
+  if (MOCK_AUTH_ENABLED) {
+    return readMockItems()
+      .filter((i) => (i.status === "ready" || i.status === "draft") && !i.scheduledFor)
+      .map(mockItemToPost);
+  }
+
+  const supabase = createClient();
+  const wsId = await getWorkspaceId(supabase);
+
+  const { data, error } = await supabase
+    .from("generations")
+    .select(`
+      id, platform, status, scheduled_for, published_at, generated_content, created_at,
+      content_items (title)
+    `)
+    .eq("workspace_id", wsId)
+    .in("status", ["ready", "draft"])
+    .is("scheduled_for", null)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    console.error("Failed to fetch unscheduled posts:", error);
+    return [];
+  }
+
+  return (data as any[]).map(mapRow);
 }
 
 /**
@@ -313,30 +319,26 @@ export async function getUpcomingPosts(): Promise<ScheduledPost[]> {
 export async function getMonthStats(
   year: number,
   month: number
-): Promise<{ scheduled: number; published: number; drafts: number }> {
-  const startDate = new Date(year, month, 1).toISOString();
-  const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+): Promise<{ scheduled: number; published: number; drafts: number; ready: number }> {
+  const startDate = new Date(year, month, 1).getTime();
+  const endDate = new Date(year, month + 1, 0, 23, 59, 59).getTime();
 
   if (MOCK_AUTH_ENABLED) {
-    const posts = seedIfEmpty();
-    let scheduled = 0;
-    let published = 0;
-    let drafts = 0;
+    let scheduled = 0, published = 0, drafts = 0, ready = 0;
 
-    for (const p of posts) {
-      const refDate = p.scheduledFor || p.publishedAt || p.createdAt;
+    for (const item of readMockItems()) {
+      const post = mockItemToPost(item);
+      const refDate = post.scheduledFor || post.publishedAt || post.createdAt;
       const t = new Date(refDate).getTime();
-      const start = new Date(startDate).getTime();
-      const end = new Date(endDate).getTime();
+      if (t < startDate || t > endDate) continue;
 
-      if (t >= start && t <= end) {
-        if (p.status === "scheduled") scheduled++;
-        else if (p.status === "published") published++;
-        else if (p.status === "draft") drafts++;
-      }
+      if (post.status === "scheduled") scheduled++;
+      else if (post.status === "published") published++;
+      else if (post.status === "draft") drafts++;
+      else if (post.status === "ready") ready++;
     }
 
-    return { scheduled, published, drafts };
+    return { scheduled, published, drafts, ready };
   }
 
   const supabase = createClient();
@@ -345,28 +347,26 @@ export async function getMonthStats(
   const { data, error } = await supabase
     .from("generations")
     .select("status, scheduled_for, published_at, created_at")
-    .eq("workspace_id", wsId)
-    .in("status", ["scheduled", "published", "draft"])
-    .or(
-      `scheduled_for.gte.${startDate},scheduled_for.lte.${endDate},` +
-      `published_at.gte.${startDate},published_at.lte.${endDate},` +
-      `created_at.gte.${startDate},created_at.lte.${endDate}`
-    );
+    .eq("workspace_id", wsId);
 
   if (error || !data) {
     console.error("Failed to fetch month stats:", error);
-    return { scheduled: 0, published: 0, drafts: 0 };
+    return { scheduled: 0, published: 0, drafts: 0, ready: 0 };
   }
 
-  let scheduled = 0;
-  let published = 0;
-  let drafts = 0;
+  let scheduled = 0, published = 0, drafts = 0, ready = 0;
 
   for (const row of data as any[]) {
-    if (row.status === "scheduled") scheduled++;
-    else if (row.status === "published") published++;
-    else if (row.status === "draft") drafts++;
+    const refDate = row.scheduled_for || row.published_at || row.created_at;
+    const t = new Date(refDate).getTime();
+    if (t < startDate || t > endDate) continue;
+
+    const displayStatus = deriveStatus(row.status, row.scheduled_for);
+    if (displayStatus === "scheduled") scheduled++;
+    else if (displayStatus === "published") published++;
+    else if (displayStatus === "draft") drafts++;
+    else if (displayStatus === "ready") ready++;
   }
 
-  return { scheduled, published, drafts };
+  return { scheduled, published, drafts, ready };
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Check, ArrowLeft, Loader2 } from "lucide-react";
 import { createCheckoutSession } from "@/lib/stripe-store";
+import { useToast } from "@/components/ui/toaster";
 
 /* ── Plan definitions ── */
 
@@ -107,29 +108,7 @@ const PRICE_IDS: Record<string, { monthly: string; yearly: string }> = {
   },
 };
 
-/* ── Success toast component ── */
 
-function UpgradeSuccessToast({ onDismiss }: { onDismiss: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDismiss, 5000);
-    return () => clearTimeout(t);
-  }, [onDismiss]);
-
-  return (
-    <div className="fixed top-6 right-6 z-50 bg-[#27C93F] text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 animate-in slide-in-from-top-2">
-      <Check className="w-4 h-4" />
-      <span className="text-sm font-medium">
-        Plan upgraded successfully!
-      </span>
-      <button
-        onClick={onDismiss}
-        className="ml-2 text-white/80 hover:text-white text-lg leading-none"
-      >
-        x
-      </button>
-    </div>
-  );
-}
 
 /* ── Inner page (needs useSearchParams, must be wrapped in Suspense) ── */
 
@@ -139,16 +118,15 @@ function PricingContent() {
   const [annual, setAnnual] = useState(true);
   const [loadingTier, setLoadingTier] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showSuccess, setShowSuccess] = useState(false);
+  const { toast } = useToast();
 
-  // Check for ?upgraded=true on mount
   useEffect(() => {
     if (searchParams.get("upgraded") === "true") {
-      setShowSuccess(true);
+      toast({ message: "Plan upgraded successfully!", type: "success" });
       // Clean up the URL
       router.replace("/pricing", { scroll: false });
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, toast]);
 
   const handleCheckout = useCallback(
     async (plan: Plan) => {
@@ -182,10 +160,6 @@ function PricingContent() {
 
   return (
     <div className="min-h-screen bg-[#F5F6F8]">
-      {showSuccess && (
-        <UpgradeSuccessToast onDismiss={() => setShowSuccess(false)} />
-      )}
-
       {/* Nav */}
       <nav className="h-16 bg-background border-b border-foreground/5 flex items-center px-6">
         <Link href="/" className="flex items-center gap-3">

@@ -52,8 +52,8 @@ export default function GenerationChart({ data }: GenerationChartProps) {
           >
             <defs>
               <linearGradient id="fillGenerations" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f3f4f6" stopOpacity={0.8} />
-                <stop offset="95%" stopColor="#f3f4f6" stopOpacity={0.1} />
+                <stop offset="5%" stopColor="#4b5563" stopOpacity={0.2} />
+                <stop offset="95%" stopColor="#4b5563" stopOpacity={0.02} />
               </linearGradient>
               <linearGradient id="fillPublished" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#27C93F" stopOpacity={0.15} />
@@ -66,20 +66,20 @@ export default function GenerationChart({ data }: GenerationChartProps) {
             </defs>
             <CartesianGrid
               vertical={false}
-              stroke="#f3f4f6"
+              stroke="#6b7280"
               strokeDasharray="3 3"
             />
             <XAxis
               dataKey="day"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: "#9ca3af", fontWeight: 500 }}
+              tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 500 }}
               dy={10}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: "#9ca3af", fontWeight: 500 }}
+              tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 500 }}
               domain={[0, yMax]}
               allowDecimals={false}
             />
@@ -98,10 +98,10 @@ export default function GenerationChart({ data }: GenerationChartProps) {
               type="monotone"
               dataKey="generations"
               name="Generations"
-              stroke="#d1d5db"
-              strokeWidth={1}
+              stroke="#4b5563"
+              strokeWidth={1.5}
               fill="url(#fillGenerations)"
-              activeDot={{ r: 4, fill: "#d1d5db", stroke: "white" }}
+              activeDot={{ r: 4, fill: "#4b5563", stroke: "white" }}
             />
             <Area
               type="monotone"

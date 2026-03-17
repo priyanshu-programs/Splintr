@@ -48,6 +48,7 @@ function MetaIcon({ className }: { className?: string }) {
   );
 }
 import { approveContent, publishContent, getConnectedPlatforms, type ConnectedPlatform } from "@/lib/content-store";
+import { getVoiceProfiles, type VoiceProfileData } from "@/lib/voice-store";
 import Link from "next/link";
 
 type InputMethod = "text" | "url" | "file";
@@ -149,9 +150,18 @@ export default function CreateContentPage() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedPlatform[]>([]);
   const [cardMessages, setCardMessages] = useState<Record<string, { text: string; type: "success" | "error" }>>({});
 
-  // Load connected platforms on mount
+  // Voice profile state
+  const [voiceProfiles, setVoiceProfiles] = useState<VoiceProfileData[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+
+  // Load connected platforms and voice profiles on mount
   useEffect(() => {
     getConnectedPlatforms().then(setConnectedPlatforms).catch(console.error);
+    getVoiceProfiles().then((profiles) => {
+      setVoiceProfiles(profiles);
+      const defaultProfile = profiles.find((p) => p.isDefault);
+      if (defaultProfile) setSelectedProfileId(defaultProfile.id);
+    }).catch(console.error);
   }, []);
 
   function togglePlatform(id: string) {
@@ -224,6 +234,40 @@ export default function CreateContentPage() {
     return null;
   }
 
+  function buildVoicePayload() {
+    if (!selectedProfileId) return undefined;
+    const profile = voiceProfiles.find((p) => p.id === selectedProfileId);
+    if (!profile) return undefined;
+
+    let systemPrompt = profile.systemPrompt || "";
+    if (!systemPrompt) {
+      // Build from sliders
+      const sliderDescs = profile.sliders.map((s) => {
+        if (s.value <= 30) return `${s.from.toLowerCase()}`;
+        if (s.value >= 70) return `${s.to.toLowerCase()}`;
+        return `balanced between ${s.from.toLowerCase()} and ${s.to.toLowerCase()}`;
+      });
+      const toneStr = profile.tone ? profile.tone.toLowerCase() : "professional";
+      systemPrompt = `Write in a ${toneStr} tone. Style: ${sliderDescs.join(", ")}.`;
+    }
+
+    // Filter out internal keys (like sliders stored in platformOverrides) and pass only platform overrides
+    const platformOverrides: Record<string, { tone?: string; sliders?: typeof profile.sliders }> = {};
+    for (const [key, val] of Object.entries(profile.platformOverrides || {})) {
+      if (["linkedin", "x", "instagram", "blog"].includes(key) && val && typeof val === "object") {
+        platformOverrides[key] = val as { tone?: string; sliders?: typeof profile.sliders };
+      }
+    }
+
+    return {
+      id: profile.id,
+      systemPrompt,
+      tone: profile.tone,
+      writingSamples: profile.writingSamples,
+      platformOverrides: Object.keys(platformOverrides).length > 0 ? platformOverrides : undefined,
+    };
+  }
+
   async function handleGenerate() {
     setStatus("extracting");
     setErrorMessage("");
@@ -246,6 +290,7 @@ export default function CreateContentPage() {
       setStatus("processing");
       setStatusMessage(`Generating content for ${selectedPlatforms.length} platform${selectedPlatforms.length > 1 ? "s" : ""}...`);
 
+      const voiceProfile = buildVoicePayload();
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -254,6 +299,7 @@ export default function CreateContentPage() {
           sourceType: source.sourceType,
           sourceTitle: source.title,
           platforms: selectedPlatforms,
+          voiceProfile,
         }),
       });
 
@@ -306,12 +352,14 @@ export default function CreateContentPage() {
       // For simplicity, we re-call generate with just one platform
       const sourceContent = source || outputs.map((o) => o.content).join("\n\n");
 
+      const voiceProfile = buildVoicePayload();
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceContent,
           platforms: [platform],
+          voiceProfile,
         }),
       });
 
@@ -489,11 +537,10 @@ export default function CreateContentPage() {
                   key={tab.id}
                   onClick={() => setInputMethod(tab.id)}
                   disabled={isProcessing}
-                  className={`flex-1 h-12 flex items-center justify-center gap-2 font-mono text-xs font-extrabold tracking-[0.15em] uppercase transition-all ${
-                    inputMethod === tab.id
+                  className={`flex-1 h-12 flex items-center justify-center gap-2 font-mono text-xs font-extrabold tracking-[0.15em] uppercase transition-all ${inputMethod === tab.id
                       ? "bg-[var(--sp-fg)] text-background"
                       : "text-[var(--sp-fg-light)] hover:text-[var(--sp-fg)] hover:bg-[var(--sp-bg)]"
-                  } disabled:opacity-50`}
+                    } disabled:opacity-50`}
                 >
                   <tab.icon className="w-4 h-4" />
                   {tab.label}
@@ -576,11 +623,10 @@ export default function CreateContentPage() {
                     key={p.id}
                     onClick={() => togglePlatform(p.id)}
                     disabled={isProcessing}
-                    className={`p-4 rounded-xl border text-left transition-all flex items-center gap-3 ${
-                      selected
+                    className={`p-4 rounded-xl border text-left transition-all flex items-center gap-3 ${selected
                         ? "border-[var(--sp-fg)] bg-sp-fg/5"
                         : "border-sp-fg/10 hover:border-sp-fg/30"
-                    } disabled:opacity-50`}
+                      } disabled:opacity-50`}
                   >
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${selected ? "bg-[var(--sp-fg)] text-background" : "bg-[var(--sp-bg)] text-[var(--sp-fg-light)]"}`}>
                       <p.icon className="w-4 h-4" />
@@ -594,6 +640,27 @@ export default function CreateContentPage() {
               })}
             </div>
           </div>
+
+          {/* Voice profile selector */}
+          {voiceProfiles.length > 0 && (
+            <div className="bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
+              <h3 className="font-semibold mb-1 text-[var(--sp-fg)]">Voice Profile</h3>
+              <p className="text-xs text-[var(--sp-fg-light)] mb-4">Choose a voice to shape the tone and style of generated content</p>
+              <select
+                value={selectedProfileId || ""}
+                onChange={(e) => setSelectedProfileId(e.target.value || null)}
+                disabled={isProcessing}
+                className="w-full h-11 px-4 bg-[var(--sp-bg)] border border-sp-fg/10 rounded-lg text-sm focus:outline-none focus:border-[var(--sp-fg)] focus:ring-1 focus:ring-[var(--sp-fg)] transition-all font-mono disabled:opacity-50 appearance-none cursor-pointer"
+              >
+                <option value="">None (generic tone)</option>
+                {voiceProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.isDefault ? " (default)" : ""} — {p.tone}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Error message */}
           {status === "error" && errorMessage && (
@@ -684,11 +751,10 @@ export default function CreateContentPage() {
                   </div>
                   {/* Per-card inline message */}
                   {cardMessages[output.platform] && (
-                    <div className={`mx-4 mb-3 flex items-center gap-2 p-3 rounded-lg text-xs font-medium ${
-                      cardMessages[output.platform].type === "success"
+                    <div className={`mx-4 mb-3 flex items-center gap-2 p-3 rounded-lg text-xs font-medium ${cardMessages[output.platform].type === "success"
                         ? "bg-sp-green/5 border border-sp-green/20 text-[var(--sp-green)]"
                         : "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 text-red-600 dark:text-red-400"
-                    }`}>
+                      }`}>
                       {cardMessages[output.platform].type === "success" ? (
                         <Check className="w-3.5 h-3.5 shrink-0" />
                       ) : (
@@ -707,11 +773,10 @@ export default function CreateContentPage() {
                     <button
                       onClick={() => handleApprove(output)}
                       disabled={isApproved || isApproving}
-                      className={`flex-1 h-9 rounded-lg font-mono text-xs font-extrabold tracking-[0.15em] uppercase flex items-center justify-center gap-1 transition-colors ${
-                        isApproved
+                      className={`flex-1 h-9 rounded-lg font-mono text-xs font-extrabold tracking-[0.15em] uppercase flex items-center justify-center gap-1 transition-colors ${isApproved
                           ? "bg-sp-green/10 text-[var(--sp-green)] border border-sp-green/20 cursor-default"
                           : "bg-[var(--sp-fg)] text-background hover:bg-foreground"
-                      } disabled:opacity-70`}
+                        } disabled:opacity-70`}
                     >
                       {isApproving ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -725,11 +790,10 @@ export default function CreateContentPage() {
                     <button
                       onClick={() => handlePublish(output)}
                       disabled={isPublished || isPublishing}
-                      className={`h-9 px-3 rounded-lg font-mono text-xs font-extrabold tracking-[0.15em] uppercase flex items-center justify-center gap-1 transition-colors ${
-                        isPublished
+                      className={`h-9 px-3 rounded-lg font-mono text-xs font-extrabold tracking-[0.15em] uppercase flex items-center justify-center gap-1 transition-colors ${isPublished
                           ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/30 cursor-default"
                           : "border border-sp-fg/10 text-[var(--sp-fg-light)] hover:bg-[var(--sp-bg)] hover:text-[var(--sp-fg)]"
-                      } disabled:opacity-70`}
+                        } disabled:opacity-70`}
                       title={isPublished ? "Published" : "Publish to platform"}
                     >
                       {isPublishing ? (

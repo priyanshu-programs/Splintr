@@ -20,16 +20,19 @@ import {
   getWorkspaceSettings,
   updateWorkspaceSettings,
   getBillingInfo,
-  getConnections,
-  disconnectPlatform,
   getNotificationPrefs,
   updateNotificationPrefs,
   type UserProfile,
   type WorkspaceSettings,
   type BillingInfo,
-  type ConnectionItem,
   type NotificationPrefs,
 } from "@/lib/settings-store";
+import {
+  getConnections,
+  disconnectPlatform,
+  connectPlatform,
+  type PlatformConnection,
+} from "@/lib/connections-store";
 
 /* ── tiny SVG icons for platforms without lucide icons ── */
 
@@ -130,7 +133,7 @@ export default function SettingsPage() {
   const [billingLoading, setBillingLoading] = useState(true);
 
   // Connections state
-  const [connections, setConnections] = useState<ConnectionItem[]>([]);
+  const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
@@ -221,10 +224,37 @@ export default function SettingsPage() {
   };
 
   // Disconnect platform
-  const handleDisconnect = async (connectionId: string) => {
-    setDisconnecting(connectionId);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  const handleConnect = async (platform: string) => {
+    setConnecting(platform);
     try {
-      await disconnectPlatform(connectionId);
+      const res = await fetch(`/api/connect/${platform}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.configured) {
+        // OAuth not configured — connect locally in mock mode for demo
+        await connectPlatform(platform, `@${platform}_user`);
+        await loadConnections();
+        alert(data.message || data.error || `${platform} OAuth is not configured. Add ${platform.toUpperCase()}_CLIENT_ID and ${platform.toUpperCase()}_CLIENT_SECRET to your environment variables.`);
+        return;
+      }
+
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error("Failed to start OAuth:", err);
+      alert("Failed to start connection. Check console for details.");
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  const handleDisconnect = async (platform: string) => {
+    setDisconnecting(platform);
+    try {
+      await disconnectPlatform(platform);
       await loadConnections();
     } catch (err) {
       console.error("Failed to disconnect:", err);
@@ -520,29 +550,30 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex-1">
                       <div className="text-sm font-semibold">{name}</div>
-                      {c.connected && c.username && (
-                        <div className="text-xs text-[var(--sp-fg-light)]">{c.username}</div>
+                      {c.isActive && c.platformUsername && (
+                        <div className="text-xs text-[var(--sp-fg-light)]">{c.platformUsername}</div>
                       )}
                     </div>
-                    {c.connected ? (
+                    {c.isActive ? (
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-mono font-bold text-[var(--sp-green)] flex items-center gap-1">
                           <Check className="w-3.5 h-3.5" /> Connected
                         </span>
                         <button
-                          onClick={() => handleDisconnect(c.id)}
-                          disabled={disconnecting === c.id}
+                          onClick={() => handleDisconnect(c.platform)}
+                          disabled={disconnecting === c.platform}
                           className="h-8 px-3 border border-red-100 text-red-500 rounded-lg text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
                         >
-                          {disconnecting === c.id ? "..." : "Disconnect"}
+                          {disconnecting === c.platform ? "..." : "Disconnect"}
                         </button>
                       </div>
                     ) : (
                       <button
-                        onClick={() => alert("OAuth integration coming soon")}
-                        className="h-8 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-xs font-medium hover:bg-foreground transition-colors"
+                        onClick={() => handleConnect(c.platform)}
+                        disabled={connecting === c.platform}
+                        className="h-8 px-4 bg-[var(--sp-fg)] text-background rounded-lg text-xs font-medium hover:bg-foreground transition-colors disabled:opacity-50"
                       >
-                        Connect
+                        {connecting === c.platform ? "Connecting..." : "Connect"}
                       </button>
                     )}
                   </div>

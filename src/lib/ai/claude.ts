@@ -4,7 +4,12 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 });
 
-export type Platform = "linkedin" | "x" | "instagram" | "blog" | "video-short" | "video-long";
+export type Platform = "linkedin" | "x" | "instagram" | "blog" | "youtube" | "tiktok" | "threads" | "meta" | "video-short" | "video-long";
+
+interface PlatformOverride {
+  tone?: string;
+  sliders?: { label: string; from: string; to: string; value: number }[];
+}
 
 interface GenerateOptions {
   sourceContent: string;
@@ -14,6 +19,7 @@ interface GenerateOptions {
     systemPrompt: string;
     tone: string;
     writingSamples: string[];
+    platformOverrides?: Record<string, PlatformOverride>;
   };
   template?: string;
 }
@@ -23,6 +29,10 @@ const platformInstructions: Record<Platform, string> = {
   x: `Write for X/Twitter. Max 280 chars for a single post, or create a thread (each tweet max 280 chars). Use punchy, concise language. Threads should have a hook tweet, numbered points, and a summary tweet.`,
   instagram: `Write an Instagram caption. Use an engaging hook as the first line. Include a CTA. Keep it visual and emotional.`,
   blog: `Write a full blog article. Include a title (H1), structured headings (H2, H3), introduction, body sections, and conclusion. Use markdown formatting. Aim for 800-1500 words. SEO-friendly.`,
+  youtube: `Write for YouTube. Create a compelling title, description, and script outline. Hook viewers in the first 10 seconds. Include timestamps for key sections. End with a strong CTA (subscribe, like, comment).`,
+  tiktok: `Write for TikTok. Max 60 seconds of spoken content. Start with a pattern-interrupt hook in the first 2 seconds. Use casual, energetic language. Trend-aware. Include visual cues in brackets. End with engagement prompt.`,
+  threads: `Write for Threads. Max 500 chars. Conversational and authentic tone. Can be a single post or a short thread. Similar to Twitter but more casual and community-focused. No hashtag spam.`,
+  meta: `Write for Facebook/Meta. Can be longer form (up to 63,206 chars). Use storytelling format. Engaging opening line. Include a question or CTA to drive comments. Optimized for sharing.`,
   "video-short": `Write a short-form video script (30-60 seconds). Include: HOOK (first 3 seconds), BODY (main content), CTA (end). Use conversational tone. Include visual/action notes in brackets.`,
   "video-long": `Write a long-form video script (5-10 minutes). Include: INTRO with hook, SECTIONS with transitions, OUTRO with CTA. Include [B-ROLL], [GRAPHIC], and [CUT TO] notes.`,
 };
@@ -41,9 +51,39 @@ CRITICAL WRITING RULES - follow these without exception:
 export async function generateContent(options: GenerateOptions): Promise<string> {
   const { sourceContent, platform, outputType, voiceProfile, template } = options;
 
-  const systemPrompt = voiceProfile?.systemPrompt
-    ? `${voiceProfile.systemPrompt}\n\nTone: ${voiceProfile.tone}\n\nWriting style reference:\n${voiceProfile.writingSamples.slice(0, 3).join("\n---\n")}`
-    : "You are a professional content writer who creates engaging, platform-optimized content.";
+  let systemPrompt = "You are a professional content writer who creates engaging, platform-optimized content.";
+
+  if (voiceProfile) {
+    const override = voiceProfile.platformOverrides?.[platform];
+    const effectiveTone = override?.tone || voiceProfile.tone;
+
+    const parts: string[] = [];
+
+    if (voiceProfile.systemPrompt) {
+      parts.push(voiceProfile.systemPrompt);
+    } else {
+      parts.push("You are a professional content writer who creates engaging, platform-optimized content.");
+    }
+
+    if (effectiveTone) {
+      parts.push(`Tone: ${effectiveTone}`);
+    }
+
+    if (override?.sliders) {
+      const sliderDescs = override.sliders.map((s) => {
+        if (s.value <= 30) return `${s.from.toLowerCase()}`;
+        if (s.value >= 70) return `${s.to.toLowerCase()}`;
+        return `balanced between ${s.from.toLowerCase()} and ${s.to.toLowerCase()}`;
+      });
+      parts.push(`Platform-specific style adjustments for ${platform}: ${sliderDescs.join(", ")}`);
+    }
+
+    if (voiceProfile.writingSamples.length > 0) {
+      parts.push(`Writing style reference:\n${voiceProfile.writingSamples.slice(0, 3).join("\n---\n")}`);
+    }
+
+    systemPrompt = parts.join("\n\n");
+  }
 
   const userPrompt = `${platformInstructions[platform]}
 ${writingStyleGuardrails}
@@ -97,6 +137,10 @@ function getDefaultOutputType(platform: Platform): string {
     x: "thread",
     instagram: "caption",
     blog: "article",
+    youtube: "script",
+    tiktok: "script",
+    threads: "post",
+    meta: "post",
     "video-short": "script_short",
     "video-long": "script_long",
   };

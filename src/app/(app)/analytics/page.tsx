@@ -7,6 +7,7 @@ import {
   Eye,
   Heart,
   Share2,
+  RefreshCw,
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   Linkedin,
   // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -56,40 +57,57 @@ function Skeleton({ className = "" }: { className?: string }) {
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("7d");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [platforms, setPlatforms] = useState<PlatformStat[]>([]);
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadData = () => {
     setLoading(true);
-
     Promise.all([
       getAnalyticsOverview(period),
-      getPlatformBreakdown(),
-      getTopPerforming(),
+      getPlatformBreakdown(period),
+      getTopPerforming(period),
       getWeeklyActivity(period),
     ]).then(([ov, pl, top, chart]) => {
-      if (cancelled) return;
       setOverview(ov);
       setPlatforms(pl);
       setTopItems(top);
       setChartData(chart);
       setLoading(false);
     }).catch(() => {
-      if (!cancelled) setLoading(false);
+      setLoading(false);
     });
+  };
 
-    return () => { cancelled = true; };
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period]);
+
+  const handleRefreshMetrics = async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/api/metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period }),
+      });
+      loadData();
+    } catch {
+      // Silently fail — data will show stale metrics
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const overviewCards = overview
     ? [
       { label: "Total Generations", value: String(overview.totalGenerations), change: overview.changes.generations, up: !overview.changes.generations.startsWith("-"), icon: Eye },
       { label: "Published Posts", value: String(overview.publishedPosts), change: overview.changes.published, up: !overview.changes.published.startsWith("-"), icon: Heart },
       { label: "Scheduled", value: String(overview.scheduledPosts), change: overview.changes.scheduled, up: !overview.changes.scheduled.startsWith("-"), icon: Calendar },
-      { label: "Engagement", value: overview.avgEngagement, change: overview.changes.engagement, up: true, icon: Share2 },
+      { label: "Engagement Rate", value: overview.avgEngagement, change: overview.changes.engagement, up: true, icon: Share2 },
     ]
     : [];
 
@@ -100,7 +118,16 @@ export default function AnalyticsPage() {
           <h1 className="font-sans text-2xl font-bold tracking-tight text-[var(--sp-fg)]">Analytics</h1>
           <p className="font-mono text-sm text-[var(--sp-fg-light)] mt-1">Track your content performance across platforms</p>
         </div>
-        <div className="flex bg-background dark:bg-[#121214] border border-foreground/5 dark:border-white/5 rounded-lg overflow-hidden">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefreshMetrics}
+            disabled={refreshing}
+            className="h-9 px-3 text-xs font-mono font-bold text-[#6A6D75] hover:text-[var(--sp-fg)] border border-foreground/5 dark:border-white/5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing…" : "Refresh Metrics"}
+          </button>
+          <div className="flex bg-background dark:bg-[#121214] border border-foreground/5 dark:border-white/5 rounded-lg overflow-hidden">
           {(["7d", "30d", "90d"] as const).map((p) => (
             <button
               key={p}
@@ -111,6 +138,7 @@ export default function AnalyticsPage() {
               {p}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -158,7 +186,7 @@ export default function AnalyticsPage() {
         {/* Top content */}
         <div className="lg:col-span-2 bg-background dark:bg-[#121214] rounded-xl border border-foreground/5 dark:border-white/5 p-6">
           <h3 className="font-semibold mb-1">Top Performing</h3>
-          <p className="text-xs text-[#6A6D75] mb-4">By generation count</p>
+          <p className="text-xs text-[#6A6D75] mb-4">By engagement rate</p>
           {loading ? (
             <div className="space-y-4">
               {Array.from({ length: 4 }).map((_, i) => (
