@@ -131,16 +131,13 @@ export async function getScheduledPosts(startDate: string, endDate: string): Pro
     return readMockItems()
       .map(mockItemToPost)
       .filter((p) => {
+        // Only show posts that have been explicitly scheduled or published
         if (p.scheduledFor) {
           const t = new Date(p.scheduledFor).getTime();
           if (t >= start && t <= end) return true;
         }
         if (p.publishedAt) {
           const t = new Date(p.publishedAt).getTime();
-          if (t >= start && t <= end) return true;
-        }
-        if (p.status === "draft" || p.status === "ready") {
-          const t = new Date(p.createdAt).getTime();
           if (t >= start && t <= end) return true;
         }
         return false;
@@ -173,10 +170,6 @@ export async function getScheduledPosts(startDate: string, endDate: string): Pro
       }
       if (p.publishedAt) {
         const t = new Date(p.publishedAt).getTime();
-        if (t >= start && t <= end) return true;
-      }
-      if (p.status === "draft") {
-        const t = new Date(p.createdAt).getTime();
         if (t >= start && t <= end) return true;
       }
       return false;

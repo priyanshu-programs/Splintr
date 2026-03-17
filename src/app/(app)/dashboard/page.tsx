@@ -206,7 +206,7 @@ export default function DashboardPage() {
           )}
           <div className="p-4 border-t border-foreground/5 dark:border-white/5">
             <Link
-              href="/create"
+              href="/scheduling"
               className="w-full h-9 border border-dashed border-sp-fg/20 rounded-lg text-xs font-mono font-extrabold tracking-[0.15em] uppercase text-[var(--sp-fg-light)] flex items-center justify-center gap-1 hover:border-sp-fg/40 hover:text-[var(--sp-fg)] transition-colors"
             >
               + Schedule more content

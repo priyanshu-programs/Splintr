@@ -183,15 +183,13 @@ export async function GET(request: NextRequest) {
     let effectiveAccessToken = accessToken;
 
     if (platform === "instagram") {
-      // Instagram Graph API flow:
+      // Instagram Business Login API flow:
       // 1. Exchange short-lived token for long-lived token
-      // 2. Get Facebook Pages the user manages
-      // 3. Find the page with an Instagram Business Account
-      // 4. Store the Page Access Token + IG Business Account ID
+      // 2. Get IG user ID and username directly via /me endpoint
       try {
-        // Step 2a: Exchange for long-lived user token
+        // Step 2a: Exchange for long-lived token
         const longLivedRes = await httpsGet(
-          `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${accessToken}`,
+          `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${clientSecret}&access_token=${accessToken}`,
           { Accept: "application/json" }
         );
 
@@ -202,48 +200,25 @@ export async function GET(request: NextRequest) {
             longLivedToken = llData.access_token;
           }
         } else {
-          console.warn("Failed to get long-lived token, using short-lived:", longLivedRes.status);
+          console.warn("Failed to get long-lived IG token, using short-lived:", longLivedRes.status, longLivedRes.data);
         }
 
-        // Step 2b: Get Facebook Pages the user manages
-        const pagesRes = await httpsGet(
-          `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${longLivedToken}`,
+        effectiveAccessToken = longLivedToken;
+
+        // Step 2b: Get Instagram user profile via Business Login API
+        const igMeRes = await httpsGet(
+          `https://graph.instagram.com/v21.0/me?fields=user_id,username,name,profile_picture_url&access_token=${effectiveAccessToken}`,
           { Accept: "application/json" }
         );
 
-        if (pagesRes.status >= 200 && pagesRes.status < 300) {
-          const pagesData = JSON.parse(pagesRes.data);
-          const pages = pagesData.data as Array<Record<string, unknown>> | undefined;
-
-          // Find the first page with an Instagram Business Account
-          const pageWithIg = pages?.find((p) => p.instagram_business_account);
-
-          if (pageWithIg) {
-            const igAccount = pageWithIg.instagram_business_account as Record<string, unknown>;
-            platformUserId = igAccount.id as string;
-            // Use the Page Access Token for Instagram API calls
-            effectiveAccessToken = pageWithIg.access_token as string;
-
-            // Step 2c: Get the Instagram username
-            const igProfileRes = await httpsGet(
-              `https://graph.instagram.com/v21.0/${platformUserId}?fields=username,name&access_token=${effectiveAccessToken}`,
-              { Accept: "application/json" }
-            );
-
-            if (igProfileRes.status >= 200 && igProfileRes.status < 300) {
-              const igProfile = JSON.parse(igProfileRes.data);
-              username = igProfile.username ? `@${igProfile.username}` : igProfile.name || null;
-            }
-          } else {
-            console.error("No Facebook Page with an Instagram Business Account found");
-            return NextResponse.redirect(
-              new URL(`/setup?error=${encodeURIComponent("no_instagram_business_account: Connect an Instagram Business or Creator account to a Facebook Page first")}`, appUrl)
-            );
-          }
+        if (igMeRes.status >= 200 && igMeRes.status < 300) {
+          const igProfile = JSON.parse(igMeRes.data);
+          platformUserId = igProfile.user_id || igProfile.id || null;
+          username = igProfile.username ? `@${igProfile.username}` : igProfile.name || null;
         } else {
-          console.error("Failed to fetch Facebook Pages:", pagesRes.status, pagesRes.data);
+          console.error("Failed to fetch IG profile:", igMeRes.status, igMeRes.data);
           return NextResponse.redirect(
-            new URL(`/setup?error=${encodeURIComponent("failed_to_fetch_pages")}`, appUrl)
+            new URL(`/setup?error=${encodeURIComponent("instagram_profile_failed: " + igMeRes.data)}`, appUrl)
           );
         }
       } catch (igErr) {

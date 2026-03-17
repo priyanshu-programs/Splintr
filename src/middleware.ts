@@ -87,6 +87,32 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
+    // If authenticated, check onboarding status
+    if (user) {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("onboarding_completed")
+        .eq("id", user.id)
+        .single();
+
+      const onboardingDone = (profile as any)?.onboarding_completed === true;
+      const isOnboarding = pathname === "/onboarding" || pathname.startsWith("/onboarding/");
+
+      // Not onboarded yet — force to /onboarding
+      if (!onboardingDone && !isOnboarding) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/onboarding";
+        return NextResponse.redirect(url);
+      }
+
+      // Already onboarded — don't let them back into onboarding
+      if (onboardingDone && isOnboarding) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/dashboard";
+        return NextResponse.redirect(url);
+      }
+    }
+
     // Auth routes — redirect to /dashboard if already authenticated
     const authPaths = ["/login", "/signup"];
     const isAuthPage = authPaths.some(
