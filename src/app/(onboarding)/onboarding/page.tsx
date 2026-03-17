@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Check, Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import type { PlatformType } from "@/lib/supabase/types";
-import { MOCK_AUTH_ENABLED } from "@/lib/auth/mock-auth";
+import { MOCK_AUTH_ENABLED, markMockOnboardingComplete } from "@/lib/auth/mock-auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const steps = [
@@ -101,6 +101,11 @@ export default function OnboardingPage() {
   const [generating, setGenerating] = useState(false);
   const [previewError, setPreviewError] = useState("");
 
+  // Dry run state
+  const [dryRunResults, setDryRunResults] = useState<Record<string, string>>({});
+  const [dryRunGenerating, setDryRunGenerating] = useState(false);
+  const [dryRunError, setDryRunError] = useState("");
+
   const currentStepMeta = steps[currentStep - 1];
   const workspaceLabel = workspaceName.trim() || "Untitled Workspace";
   const timezoneLabel =
@@ -166,11 +171,52 @@ export default function OnboardingPage() {
     }
   }
 
+  async function executeDryRun() {
+    if (!dryRunInput.trim()) return;
+
+    setDryRunGenerating(true);
+    setDryRunError("");
+    setDryRunResults({});
+
+    // Use selected platforms, or default to linkedin if none selected
+    const dryRunPlatforms = selectedPlatforms.length > 0 ? selectedPlatforms : ["linkedin"];
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceContent: dryRunInput,
+          sourceType: "text",
+          platforms: dryRunPlatforms,
+          voiceProfile: {
+            systemPrompt: customPrompt || "",
+            tone: voiceToneLabel,
+            writingSamples: [],
+            platformOverrides: { formalityIndex, humorCoefficient },
+          },
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Dry run failed");
+      }
+
+      setDryRunResults(data.results || {});
+    } catch (err) {
+      setDryRunError(err instanceof Error ? err.message : "Dry run failed. Check your API key and try again.");
+    } finally {
+      setDryRunGenerating(false);
+    }
+  }
+
   async function handleFinish() {
     setSaving(true);
     setError("");
 
     if (MOCK_AUTH_ENABLED) {
+      markMockOnboardingComplete(workspaceName || "My Workspace", timezone);
       router.push("/dashboard");
       return;
     }
@@ -479,15 +525,61 @@ export default function OnboardingPage() {
     }
 
     if (currentStep === 5) {
+      const platformsForDryRun = selectedPlatforms.length > 0
+        ? platforms.filter((p) => selectedPlatforms.includes(p.id))
+        : [{ id: "linkedin", name: "LinkedIn" }];
+
       return (
-        <div className="max-w-2xl">
+        <div className="max-w-2xl space-y-5">
           <textarea
             value={dryRunInput}
             onChange={(event) => setDryRunInput(event.target.value)}
             placeholder="E.g., I just realized that most AI wrappers are just database CRUD apps with a prompt layer. We need better primitives."
-            rows={5}
+            rows={4}
             className="w-full resize-none border border-foreground/15 bg-transparent p-4 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-foreground/45 focus:border-foreground"
           />
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={executeDryRun}
+              disabled={dryRunGenerating || !dryRunInput.trim()}
+              className="inline-flex items-center gap-2 bg-foreground px-4 py-2 text-xs font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {dryRunGenerating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                "Run Simulation"
+              )}
+            </button>
+            <span className="text-[0.6rem] text-foreground/40">
+              Generating for: {platformsForDryRun.map((p) => p.name).join(", ")}
+            </span>
+          </div>
+
+          {dryRunError && (
+            <div className="border border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800/30 p-4 text-sm text-red-700 dark:text-red-400">
+              {dryRunError}
+            </div>
+          )}
+
+          {Object.keys(dryRunResults).length > 0 && (
+            <div className="space-y-4">
+              {Object.entries(dryRunResults).map(([platform, content]) => (
+                <div key={platform} className="border border-foreground/10 bg-foreground/[0.015] p-4">
+                  <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-foreground/40 mb-2">
+                    {platforms.find((p) => p.id === platform)?.name || platform}
+                  </p>
+                  <div className="text-sm leading-7 text-foreground/80 whitespace-pre-wrap">
+                    {content}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }

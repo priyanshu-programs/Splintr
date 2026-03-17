@@ -53,15 +53,13 @@ const OAUTH_CONFIGS: Record<string, OAuthPlatformConfig> = {
     },
   },
   instagram: {
-    // Instagram Graph API requires Facebook Login OAuth flow.
-    // The Facebook App must have "Instagram Graph API" product added.
-    authUrl: "https://www.facebook.com/v21.0/dialog/oauth",
-    tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
-    // After token exchange, callback resolves IG Business Account from FB Pages
-    userInfoUrl: "https://graph.facebook.com/v21.0/me",
+    // Instagram Business Login API (new flow — no Facebook Login needed).
+    authUrl: "https://www.instagram.com/oauth/authorize",
+    tokenUrl: "https://api.instagram.com/oauth/access_token",
+    userInfoUrl: "https://graph.instagram.com/v21.0/me",
     scopes: [
-      "pages_show_list",
-      "pages_read_engagement",
+      "instagram_business_basic",
+      "instagram_business_content_publish",
     ],
     clientIdEnv: "INSTAGRAM_APP_ID",
     clientSecretEnv: "INSTAGRAM_APP_SECRET",

@@ -57,7 +57,7 @@ const navSections: NavSection[] = [
 function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, profile, isLoading } = useAuth();
+  const { user, profile, workspace, isLoading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -75,6 +75,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     router.push("/login");
+    return null;
+  }
+
+  // Redirect to onboarding if not completed
+  if (profile && !profile.onboarding_completed) {
+    router.push("/onboarding");
     return null;
   }
 
@@ -120,7 +126,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 <circle cx="12" cy="12" r="4" fill="white" />
               </svg>
             </div>
-            {!collapsed && <span className="font-mono text-sm font-extrabold tracking-[0.25em]">SPLINTR</span>}
+            {!collapsed && (
+              <div className="flex flex-col min-w-0">
+                <span className="font-mono text-sm font-extrabold tracking-[0.25em]">SPLINTR</span>
+                {workspace?.name && (
+                  <span className="text-[0.6rem] font-mono text-background/40 dark:text-white/40 truncate tracking-wide">
+                    {workspace.name}
+                  </span>
+                )}
+              </div>
+            )}
           </Link>
           <button
             onClick={() => setCollapsed(!collapsed)}

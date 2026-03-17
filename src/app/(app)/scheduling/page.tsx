@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -22,6 +22,7 @@ import {
   getMonthStats,
   getUnscheduledPosts,
   schedulePost,
+  unschedulePost,
   type ScheduledPost,
   type ScheduledPostStatus,
 } from "@/lib/scheduling-store";
@@ -106,7 +107,7 @@ function getCalendarDays(year: number, month: number) {
 /* ── status badge (colors match library/page.tsx statusStyles) ── */
 
 const STATUS_STYLES: Record<ScheduledPostStatus, string> = {
-  scheduled: "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-transparent",
+  scheduled: "bg-cyan-50 dark:bg-cyan-950/20 text-cyan-600 dark:text-cyan-400 border border-transparent",
   ready: "bg-sp-green/10 text-[var(--sp-green)] border border-transparent",
   published: "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-transparent",
   draft: "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-dashed border-amber-500/30",
@@ -257,7 +258,7 @@ function ScheduleModal({
                     onClick={() => setSelectedPostId(post.id)}
                     className={`w-full text-left p-3 flex items-center gap-3 transition-colors ${
                       isSelected
-                        ? "bg-indigo-50 dark:bg-indigo-950/20 border-l-2 border-l-indigo-500"
+                        ? "bg-cyan-50 dark:bg-cyan-950/20 border-l-2 border-l-cyan-500"
                         : "hover:bg-black/5 dark:hover:bg-white/5 border-l-2 border-l-transparent"
                     }`}
                   >
@@ -391,6 +392,10 @@ export default function SchedulingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDate, setModalDate] = useState(today.toISOString().slice(0, 10));
 
+  // Post action menu state
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const todayStr = today.toISOString().slice(0, 10);
   const calendarDays = useMemo(() => getCalendarDays(currentYear, currentMonth), [currentYear, currentMonth]);
 
@@ -420,6 +425,32 @@ export default function SchedulingPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Close action menu on click outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    }
+    if (menuOpenId) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [menuOpenId]);
+
+  const { toast } = useToast();
+
+  const handleUnschedule = useCallback(async (postId: string) => {
+    setMenuOpenId(null);
+    try {
+      await unschedulePost(postId);
+      toast({ message: "Post unscheduled", type: "success" });
+      fetchData();
+    } catch (err: any) {
+      toast({ message: err.message || "Failed to unschedule", type: "error" });
+    }
+  }, [fetchData, toast]);
 
   // Group posts by date for calendar dots
   const postsByDate = useMemo(() => {
@@ -568,7 +599,7 @@ export default function SchedulingPage() {
                     <span className="text-xs">{cell.day}</span>
                     {cellPosts.length > 0 && (
                       <div className="flex gap-0.5 mt-0.5">
-                        {hasScheduled && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-indigo-300" : "bg-indigo-500"}`} />}
+                        {hasScheduled && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-cyan-300" : "bg-cyan-500"}`} />}
                         {hasReady && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-green-300" : "bg-[var(--sp-green)]"}`} />}
                         {hasPublished && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-blue-300" : "bg-blue-500"}`} />}
                         {hasDraft && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-amber-300" : "bg-amber-500"}`} />}
@@ -642,9 +673,32 @@ export default function SchedulingPage() {
                             <p className="text-[10px] text-[var(--sp-fg-light)]">{PLATFORM_LABELS[post.platform] || post.platform}</p>
                           </div>
                         </div>
-                        <button className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--sp-bg)] dark:hover:bg-white/5">
-                          <MoreHorizontal className="w-3.5 h-3.5 text-[var(--sp-fg-light)]" />
-                        </button>
+                        {post.status === "scheduled" && (
+                        <div className="relative" ref={menuOpenId === post.id ? menuRef : undefined}>
+                          <button
+                            onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)}
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--sp-bg)] dark:hover:bg-white/5"
+                          >
+                            <MoreHorizontal className="w-3.5 h-3.5 text-[var(--sp-fg-light)]" />
+                          </button>
+                          {menuOpenId === post.id && (
+                            <div className="absolute right-0 top-7 z-20 bg-background dark:bg-[#1a1a1e] border border-foreground/10 dark:border-white/10 rounded-lg shadow-lg py-1 min-w-[140px]">
+                              <button
+                                onClick={() => handleUnschedule(post.id)}
+                                className="w-full text-left px-3 py-1.5 text-xs font-mono text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                              >
+                                Unschedule
+                              </button>
+                              <button
+                                onClick={() => { setMenuOpenId(null); setModalDate(post.scheduledFor?.slice(0, 10) || todayStr); setModalOpen(true); }}
+                                className="w-full text-left px-3 py-1.5 text-xs font-mono text-[var(--sp-fg)] hover:bg-[var(--sp-bg)] dark:hover:bg-white/5 transition-colors"
+                              >
+                                Reschedule
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 text-[10px] text-[var(--sp-fg-light)] font-mono">
@@ -706,7 +760,7 @@ export default function SchedulingPage() {
             ) : (
               <div className="space-y-3">
                 {[
-                  { label: "Scheduled", count: stats.scheduled, colorClass: "bg-indigo-500" },
+                  { label: "Scheduled", count: stats.scheduled, colorClass: "bg-cyan-500" },
                   { label: "Ready", count: stats.ready, colorClass: "bg-[var(--sp-green)]" },
                   { label: "Published", count: stats.published, colorClass: "bg-blue-500" },
                   { label: "Drafts", count: stats.drafts, colorClass: "bg-amber-500" },
@@ -769,9 +823,32 @@ export default function SchedulingPage() {
                         </p>
                       </div>
                       <StatusBadge status={post.status} />
-                      <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--sp-bg)] dark:hover:bg-white/5">
-                        <MoreHorizontal className="w-4 h-4 text-[var(--sp-fg-light)]" />
-                      </button>
+                      {post.status === "scheduled" && (
+                      <div className="relative" ref={menuOpenId === post.id ? menuRef : undefined}>
+                        <button
+                          onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)}
+                          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--sp-bg)] dark:hover:bg-white/5"
+                        >
+                          <MoreHorizontal className="w-4 h-4 text-[var(--sp-fg-light)]" />
+                        </button>
+                        {menuOpenId === post.id && (
+                          <div className="absolute right-0 top-9 z-20 bg-background dark:bg-[#1a1a1e] border border-foreground/10 dark:border-white/10 rounded-lg shadow-lg py-1 min-w-[140px]">
+                            <button
+                              onClick={() => handleUnschedule(post.id)}
+                              className="w-full text-left px-3 py-1.5 text-xs font-mono text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                            >
+                              Unschedule
+                            </button>
+                            <button
+                              onClick={() => { setMenuOpenId(null); setModalDate(post.scheduledFor?.slice(0, 10) || todayStr); setModalOpen(true); }}
+                              className="w-full text-left px-3 py-1.5 text-xs font-mono text-[var(--sp-fg)] hover:bg-[var(--sp-bg)] dark:hover:bg-white/5 transition-colors"
+                            >
+                              Reschedule
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      )}
                     </div>
                   );
                 })}
